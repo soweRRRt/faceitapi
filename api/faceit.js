@@ -61,7 +61,6 @@ export default async function handler(request, response) {
   const FACEIT_API_KEY = process.env.FACEIT_API_KEY;
   
   try {
-    // 1. Получаем основную информацию об игроке
     const playerResponse = await fetch(`https://open.faceit.com/data/v4/players?nickname=${encodeURIComponent(nickname)}`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
     });
@@ -70,7 +69,6 @@ export default async function handler(request, response) {
     const playerData = await playerResponse.json();
     const playerId = playerData.player_id;
 
-    // 2. Получаем статистику
     const statsResponse = await fetch(`https://open.faceit.com/data/v4/players/${playerId}/stats/cs2`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
     });
@@ -78,8 +76,7 @@ export default async function handler(request, response) {
     if (!statsResponse.ok) throw new Error('Ошибка получения статистики');
     const statsData = await statsResponse.json();
 
-    // 3. Получаем последние матчи (последние 20)
-    const matchesResponse = await fetch(`https://open.faceit.com/data/v4/players/${playerId}/games/cs2/stats?offset=0&limit=20`, {
+    const matchesResponse = await fetch(`https://open.faceit.com/data/v4/players/${playerId}/games/cs2/stats?offset=0&limit=30`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
     });
     
@@ -100,7 +97,6 @@ export default async function handler(request, response) {
       }));
     }
 
-    // 4. Формируем полный ответ
     const result = {
       nickname: nickname,
       player_id: playerId,
