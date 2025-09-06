@@ -269,14 +269,26 @@ export default async function handler(request, response) {
       all_player_data: playerData
     };
 
+    // if (viewTemplate) {
+    //   const textOutput = viewTemplate.replace(/\{([\w_.]+)\}/g, (_, key) => {
+    //     const keys = key.split('.');
+    //     let val = result;
+    //     for (const k of keys) {
+    //       val = val?.[k];
+    //     }
+    //     return val ?? `{${key}}`;
+    //   });
+    //   response.status(200).send(textOutput);
+    //   return;
+    // }
+
     if (viewTemplate) {
-      const textOutput = viewTemplate.replace(/\{([\w_.]+)\}/g, (_, key) => {
-        const keys = key.split('.');
-        let val = result;
-        for (const k of keys) {
-          val = val?.[k];
+      const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
+        if (fullMode) {
+          return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
+        } else {
+          return result.api.last_30_stats[key] ?? result.api[key] ?? `{${key}}`;
         }
-        return val ?? `{${key}}`;
       });
       response.status(200).send(textOutput);
       return;
