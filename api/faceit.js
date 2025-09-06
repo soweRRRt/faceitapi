@@ -178,6 +178,72 @@ export default async function handler(request, response) {
       matches_count: 0
     };
 
+    // if (matchesResponse.ok) {
+    //   const matchesData = await matchesResponse.json();
+    //   lastMatches = matchesData.items.slice(0, 30).map(match => ({
+    //     match_id: match.match_id,
+    //     date: match.date,
+    //     result: match.stats.Result,
+    //     kills: parseInt(match.stats.Kills) || 0,
+    //     deaths: parseInt(match.stats.Deaths) || 0,
+    //     assists: parseInt(match.stats.Assists) || 0,
+    //     kd_ratio: parseFloat(match.stats['K/D Ratio']) || 0,
+    //     hs_percent: parseFloat(match.stats['Headshots %']) || 0,
+    //     rating: parseFloat(match.stats.Rating) || 0,
+    //     mvps: parseInt(match.stats.MVPs) || 0,
+    //     headshots: parseInt(match.stats.Headshots) || 0,
+    //     adr: parseFloat(match.stats['Average Damage']) || 0,
+    //     rounds: parseInt(match.stats.Rounds) || 0
+    //   }));
+
+    //   // Формируем trend последних 5 матчей (последний матч справа)
+    //   const last5 = lastMatches.slice(0, 5);
+    //   last5MatchesTrend = last5.map(match => 
+    //     match.result === '1' ? 'W' : 'L'
+    //   ).reverse().join('');
+
+    //   // Считаем статистику за последние 30 матчей
+    //   last30Stats.matches_count = lastMatches.length;
+
+    //   let totalKills = 0;
+    //   let totalDeaths = 0;
+    //   let totalAssists = 0;
+    //   let totalHeadshots = 0;
+    //   let totalRounds = 0;
+    //   let totalADR = 0;
+
+    //   lastMatches.forEach(match => {
+    //     totalKills += match.kills;
+    //     totalDeaths += match.deaths;
+    //     totalAssists += match.assists;
+    //     totalHeadshots += match.headshots;
+    //     totalRounds += match.rounds;
+    //     totalADR += match.adr;
+
+    //     if (match.result === '1') {
+    //       last30Stats.wins++;
+    //     } else {
+    //       last30Stats.losses++;
+    //     }
+    //   });
+
+    //   // Правильные расчеты с проверкой деления на ноль
+    //   const avg_kills = last30Stats.matches_count > 0 ? (totalKills / last30Stats.matches_count).toFixed(0) : 0;
+    //   const avg_kd = totalDeaths > 0 ? (totalKills / totalDeaths).toFixed(2) : totalKills > 0 ? totalKills.toFixed(2) : 0;
+    //   const avg_kr = totalRounds > 0 ? (totalKills / totalRounds).toFixed(2) : 0;
+    //   const avg_adr = last30Stats.matches_count > 0 ? (totalADR / last30Stats.matches_count).toFixed(1) : 0;
+    //   const avg_hs = totalKills > 0 ? ((totalHeadshots / totalKills) * 100).toFixed(0) : 0;
+    //   const winrate_30 = last30Stats.matches_count > 0 ? ((last30Stats.wins / last30Stats.matches_count) * 100).toFixed(0) : 0;
+
+    //   // Сохраняем расчеты для использования в ответе
+    //   last30Stats.avg_kills = avg_kills;
+    //   last30Stats.avg_kd = avg_kd;
+    //   last30Stats.avg_kr = avg_kr;
+    //   last30Stats.avg_adr = avg_adr;
+    //   last30Stats.avg_hs = avg_hs;
+    //   last30Stats.winrate_30 = winrate_30;
+    // }
+
     if (matchesResponse.ok) {
       const matchesData = await matchesResponse.json();
       lastMatches = matchesData.items.slice(0, 30).map(match => ({
@@ -196,29 +262,29 @@ export default async function handler(request, response) {
         rounds: parseInt(match.stats.Rounds) || 0
       }));
 
-      // Формируем trend последних 5 матчей (последний матч справа)
+      // Формируем trend последних 5 матчей
       const last5 = lastMatches.slice(0, 5);
-      last5MatchesTrend = last5.map(match => 
+      last5MatchesTrend = last5.map(match =>
         match.result === '1' ? 'W' : 'L'
       ).reverse().join('');
 
-      // Считаем статистику за последние 30 матчей
+      // Правильный расчет статистики за 30 матчей
       last30Stats.matches_count = lastMatches.length;
 
       let totalKills = 0;
       let totalDeaths = 0;
-      let totalAssists = 0;
-      let totalHeadshots = 0;
-      let totalRounds = 0;
+      let totalKDRatio = 0;
       let totalADR = 0;
+      let totalHSPercent = 0;
+      let totalRounds = 0;
 
       lastMatches.forEach(match => {
         totalKills += match.kills;
         totalDeaths += match.deaths;
-        totalAssists += match.assists;
-        totalHeadshots += match.headshots;
-        totalRounds += match.rounds;
+        totalKDRatio += match.kd_ratio;
         totalADR += match.adr;
+        totalHSPercent += match.hs_percent;
+        totalRounds += match.rounds;
 
         if (match.result === '1') {
           last30Stats.wins++;
@@ -227,15 +293,15 @@ export default async function handler(request, response) {
         }
       });
 
-      // Правильные расчеты с проверкой деления на ноль
-      const avg_kills = last30Stats.matches_count > 0 ? (totalKills / last30Stats.matches_count).toFixed(0) : 0;
-      const avg_kd = totalDeaths > 0 ? (totalKills / totalDeaths).toFixed(2) : totalKills > 0 ? totalKills.toFixed(2) : 0;
-      const avg_kr = totalRounds > 0 ? (totalKills / totalRounds).toFixed(2) : 0;
-      const avg_adr = last30Stats.matches_count > 0 ? (totalADR / last30Stats.matches_count).toFixed(1) : 0;
-      const avg_hs = totalKills > 0 ? ((totalHeadshots / totalKills) * 100).toFixed(0) : 0;
-      const winrate_30 = last30Stats.matches_count > 0 ? ((last30Stats.wins / last30Stats.matches_count) * 100).toFixed(0) : 0;
+      // Правильные расчеты
+      const avg_kills = (totalKills / last30Stats.matches_count).toFixed(0);
+      const avg_kd = (totalKDRatio / last30Stats.matches_count).toFixed(2);
+      const avg_kr = (totalKills / totalRounds).toFixed(2);
+      const avg_adr = (totalADR / last30Stats.matches_count).toFixed(2);
+      const avg_hs = (totalHSPercent / last30Stats.matches_count).toFixed(0);
+      const winrate_30 = ((last30Stats.wins / last30Stats.matches_count) * 100).toFixed(0);
 
-      // Сохраняем расчеты для использования в ответе
+      // Сохраняем расчеты
       last30Stats.avg_kills = avg_kills;
       last30Stats.avg_kd = avg_kd;
       last30Stats.avg_kr = avg_kr;
