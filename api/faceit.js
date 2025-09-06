@@ -161,6 +161,7 @@ export default async function handler(request, response) {
   const FACEIT_API_KEY = process.env.FACEIT_API_KEY;
 
   try {
+    // Получаем player_id
     const playerResponse = await fetch(`https://open.faceit.com/data/v4/players?nickname=${encodeURIComponent(nickname)}`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
     });
@@ -169,6 +170,7 @@ export default async function handler(request, response) {
     const playerData = await playerResponse.json();
     const playerId = playerData.player_id;
 
+    // Получаем lifetime статистику
     const statsResponse = await fetch(`https://open.faceit.com/data/v4/players/${playerId}/stats/cs2`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
     });
@@ -176,6 +178,7 @@ export default async function handler(request, response) {
     if (!statsResponse.ok) throw new Error('Ошибка получения статистики');
     const statsData = await statsResponse.json();
 
+    // Получаем последние 30 матчей
     const matchesResponse = await fetch(`https://open.faceit.com/data/v4/players/${playerId}/games/cs2/stats?offset=0&limit=30`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
     });
@@ -194,28 +197,33 @@ export default async function handler(request, response) {
       lastMatches = await Promise.all(matchesData.items.slice(0, 30).map(async match => {
         let adr = 0;
 
-        try {
-          const matchStatsResponse = await fetch(
-            `https://open.faceit.com/data/v4/matches/${match.match_id}/stats`,
-            { headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` } }
-          );
+        // Сначала пробуем взять ADR из match.stats
+        if (match.stats.ADR) {
+          adr = parseFloat(match.stats.ADR) || 0;
+        } else {
+          // Если нет — грузим через /matches/{match_id}/stats
+          try {
+            const matchStatsResponse = await fetch(
+              `https://open.faceit.com/data/v4/matches/${match.match_id}/stats`,
+              { headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` } }
+            );
 
-          if (matchStatsResponse.ok) {
-            const matchStatsData = await matchStatsResponse.json();
+            if (matchStatsResponse.ok) {
+              const matchStatsData = await matchStatsResponse.json();
 
-            for (const round of matchStatsData.rounds) {
-              for (const team of round.teams) {
-                const player = team.players.find(p => p.player_id === playerId);
-                if (player) {
-                  adr = parseFloat(player.player_stats.ADR) || 0;
-                  break;
+              outer: for (const round of matchStatsData.rounds) {
+                for (const team of round.teams) {
+                  const player = team.players.find(p => p.player_id === playerId);
+                  if (player && player.player_stats && player.player_stats.ADR) {
+                    adr = parseFloat(player.player_stats.ADR) || 0;
+                    break outer; // нашли ADR, выходим из всех циклов
+                  }
                 }
               }
-              if (adr) break;
             }
+          } catch (err) {
+            console.error(`Не удалось получить ADR для матча ${match.match_id}:`, err.message);
           }
-        } catch (err) {
-          console.error(`Не удалось получить ADR для матча ${match.match_id}:`, err.message);
         }
 
         return {
@@ -235,6 +243,7 @@ export default async function handler(request, response) {
         };
       }));
 
+      // Тренд последних 5 матчей
       const last5 = lastMatches.slice(0, 5);
       last5MatchesTrend = last5.map(match =>
         match.result === '1' ? 'W' : 'L'
@@ -279,6 +288,7 @@ export default async function handler(request, response) {
       last30Stats.winrate_30 = winrate_30;
     }
 
+    // Финальный результат
     const result = {
       nickname: nickname,
       player_id: playerId,
