@@ -1,5 +1,3 @@
-export const config = { runtime: 'nodejs' };
-
 export default function handler(request, response) {
   console.log('DEBUG ENV:', process.env); // ← будет видно весь env
   response.json({

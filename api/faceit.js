@@ -1,7 +1,3 @@
-export const config = {
-  runtime: 'nodejs'
-};
-
 export default async function handler(request, response) {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Methods', 'GET');
@@ -47,7 +43,8 @@ export default async function handler(request, response) {
       }
     };
     
-    response.status(200).json(result);
+    // response.status(200).json(result);
+    response.status(200).json(statsData);
     
   } catch (error) {
     response.status(500).json({ 
