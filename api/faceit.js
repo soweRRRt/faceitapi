@@ -33,13 +33,6 @@ export default async function handler(request, response) {
       matches_count: 0
     };
 
-    let totalKills = 0;
-      let totalDeaths = 0;
-      let totalKDRatio = 0;
-      let totalADR = 0;
-      let totalHSPercent = 0;
-      let totalRounds = 0;
-
     if (matchesResponse.ok) {
       const matchesData = await matchesResponse.json();
 
@@ -69,12 +62,12 @@ export default async function handler(request, response) {
 
       last30Stats.matches_count = lastMatches.length;
 
-      // let totalKills = 0;
-      // let totalDeaths = 0;
-      // let totalKDRatio = 0;
-      // let totalADR = 0;
-      // let totalHSPercent = 0;
-      // let totalRounds = 0;
+      let totalKills = 0;
+      let totalDeaths = 0;
+      let totalKDRatio = 0;
+      let totalADR = 0;
+      let totalHSPercent = 0;
+      let totalRounds = 0;
 
       lastMatches.forEach(match => {
         totalKills += match.kills;
@@ -93,9 +86,7 @@ export default async function handler(request, response) {
 
       const avg_kills = (totalKills / last30Stats.matches_count).toFixed(0);
       const avg_kd = (totalKDRatio / last30Stats.matches_count).toFixed(2);
-      // const avg_kr = (totalKills / totalRounds).toFixed(2);
-      const avg_kr = (Math.round((totalKills / totalRounds) * 100 + 0.5) / 100).toFixed(2);
-      // const avg_kr = (Math.ceil((totalKills / totalRounds) * 100) / 100).toFixed(2);
+      const avg_kr = (totalKills / totalRounds).toFixed(2);
       const avg_adr = (totalADR / last30Stats.matches_count).toFixed(2);
       const avg_hs = (totalHSPercent / last30Stats.matches_count).toFixed(0);
       const winrate_30 = ((last30Stats.wins / last30Stats.matches_count) * 100).toFixed(0);
