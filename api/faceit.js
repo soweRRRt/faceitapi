@@ -147,7 +147,7 @@ export default async function handler(request, response) {
 
   const nickname = request.query.nick;
   const viewTemplate = request.query.view;
-  const fullMode = request.query.full;
+  const fullMode = 'full' in request.query;
   const FACEIT_API_KEY = process.env.FACEIT_API_KEY;
 
   try {
