@@ -102,6 +102,8 @@ export default async function handler(request, response) {
     }
 
     const result = {
+      totalKills: totalKills,
+      totalRounds: totalRounds,
       nickname: nickname,
       player_id: playerId,
       api: {
