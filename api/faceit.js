@@ -1,3 +1,7 @@
+export const config = {
+  runtime: 'nodejs'
+};
+
 export default async function handler(request, response) {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Access-Control-Allow-Methods', 'GET');
