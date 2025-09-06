@@ -86,7 +86,8 @@ export default async function handler(request, response) {
 
       const avg_kills = (totalKills / last30Stats.matches_count).toFixed(0);
       const avg_kd = (totalKDRatio / last30Stats.matches_count).toFixed(2);
-      const avg_kr = (totalKills / totalRounds).toFixed(2);
+      // const avg_kr = (totalKills / totalRounds).toFixed(2);
+      const avg_kr = (Math.round((totalKills / totalRounds) * 100) / 100).toFixed(2);
       const avg_adr = (totalADR / last30Stats.matches_count).toFixed(2);
       const avg_hs = (totalHSPercent / last30Stats.matches_count).toFixed(0);
       const winrate_30 = ((last30Stats.wins / last30Stats.matches_count) * 100).toFixed(0);
