@@ -1,0 +1,10 @@
+{
+  "name": "faceitapi",
+  "version": "1.0.0",
+  "description": "FaceIT API proxy for Twitch",
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

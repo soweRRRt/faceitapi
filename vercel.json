@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "api/faceit.js": {
+      "maxDuration": 10
+    }
+  },
+  "headers": [
+    {
+      "source": "/faceitapi/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET" }
+      ]
+    }
+  ]
+}
