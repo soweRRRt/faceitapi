@@ -37,36 +37,6 @@ export default async function handler(request, response) {
       const matchesData = await matchesResponse.json();
 
       lastMatches = await Promise.all(matchesData.items.slice(0, 30).map(async match => {
-        let adr = 0;
-
-        if (match.stats.ADR) {
-          adr = parseFloat(match.stats.ADR) || 0;
-        } 
-        // else {
-        //   // Если нет — грузим через /matches/{match_id}/stats
-        //   try {
-        //     const matchStatsResponse = await fetch(
-        //       `https://open.faceit.com/data/v4/matches/${match.match_id}/stats`,
-        //       { headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` } }
-        //     );
-
-        //     if (matchStatsResponse.ok) {
-        //       const matchStatsData = await matchStatsResponse.json();
-
-        //       outer: for (const round of matchStatsData.rounds) {
-        //         for (const team of round.teams) {
-        //           const player = team.players.find(p => p.player_id === playerId);
-        //           if (player && player.player_stats && player.player_stats.ADR) {
-        //             adr = parseFloat(player.player_stats.ADR) || 0;
-        //             break outer; // нашли ADR, выходим из всех циклов
-        //           }
-        //         }
-        //       }
-        //     }
-        //   } catch (err) {
-        //     console.error(`Не удалось получить ADR для матча ${match.match_id}:`, err.message);
-        //   }
-        // }
 
         return {
           match_id: match.match_id,
@@ -80,7 +50,7 @@ export default async function handler(request, response) {
           rating: parseFloat(match.stats.Rating) || 0,
           mvps: parseInt(match.stats.MVPs) || 0,
           headshots: parseInt(match.stats.Headshots) || 0,
-          adr: adr,
+          adr: parseFloat(match.stats.ADR) || 0,
           rounds: parseInt(match.stats.Rounds) || 0
         };
       }));
