@@ -33,6 +33,13 @@ export default async function handler(request, response) {
       matches_count: 0
     };
 
+    let totalKills = 0;
+      let totalDeaths = 0;
+      let totalKDRatio = 0;
+      let totalADR = 0;
+      let totalHSPercent = 0;
+      let totalRounds = 0;
+
     if (matchesResponse.ok) {
       const matchesData = await matchesResponse.json();
 
@@ -62,12 +69,12 @@ export default async function handler(request, response) {
 
       last30Stats.matches_count = lastMatches.length;
 
-      let totalKills = 0;
-      let totalDeaths = 0;
-      let totalKDRatio = 0;
-      let totalADR = 0;
-      let totalHSPercent = 0;
-      let totalRounds = 0;
+      // let totalKills = 0;
+      // let totalDeaths = 0;
+      // let totalKDRatio = 0;
+      // let totalADR = 0;
+      // let totalHSPercent = 0;
+      // let totalRounds = 0;
 
       lastMatches.forEach(match => {
         totalKills += match.kills;
