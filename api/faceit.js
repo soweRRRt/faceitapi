@@ -4,6 +4,7 @@
 
 //   const nickname = request.query.nick;
 //   const viewTemplate = request.query.view;
+//   const fullMode = 'full' in request.query;
 //   const FACEIT_API_KEY = process.env.FACEIT_API_KEY;
 
 //   try {
@@ -122,8 +123,12 @@
 //     };
 
 //     if (viewTemplate) {
-//       const textOutput = viewTemplate.replace(/\{([\w_]+)\}/g, (_, key) => {
-//         return result.api.last_30_stats[key] ?? result.api[key] ?? `{${key}}`;
+//       const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
+//         if (fullMode) {
+//           return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
+//         } else {
+//           return result.api.last_30_stats[key] ?? result.api[key] ?? `{${key}}`;
+//         }
 //       });
 //       response.status(200).send(textOutput);
 //       return;
@@ -139,7 +144,6 @@
 //     });
 //   }
 // }
-
 
 export default async function handler(request, response) {
   response.setHeader('Access-Control-Allow-Origin', '*');
@@ -175,7 +179,7 @@ export default async function handler(request, response) {
     if (matchesResponse.ok) {
       const matchesData = await matchesResponse.json();
 
-      lastMatches = await Promise.all(matchesData.items.slice(0, 30).map(async match => ({
+      lastMatches = matchesData.items.slice(0, 30).map(match => ({
         match_id: match.match_id,
         date: match.date,
         result: match.stats.Result,
@@ -189,7 +193,7 @@ export default async function handler(request, response) {
         headshots: parseInt(match.stats.Headshots) || 0,
         adr: parseFloat(match.stats.ADR) || 0,
         rounds: parseInt(match.stats.Rounds) || 0
-      })));
+      }));
 
       const last5 = lastMatches.slice(0, 5);
       last5MatchesTrend = last5.map(m => m.result === '1' ? 'W' : 'L').reverse().join('');
@@ -266,18 +270,28 @@ export default async function handler(request, response) {
     };
 
     if (viewTemplate) {
-      const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
-        if (fullMode) {
-          return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
-        } else {
-          return result.api.last_30_stats[key] ?? result.api[key] ?? `{${key}}`;
+      const textOutput = viewTemplate.replace(/\{([\w_.]+)\}/g, (_, key) => {
+        const keys = key.split('.');
+        let val = result;
+        for (const k of keys) {
+          val = val?.[k];
         }
+        return val ?? `{${key}}`;
       });
       response.status(200).send(textOutput);
       return;
     }
 
-    response.status(200).json(result);
+    if (fullMode) {
+      response.status(200).json(result);
+    } else {
+      const minimalResult = {
+        nickname: result.nickname,
+        player_id: result.player_id,
+        api: result.api
+      };
+      response.status(200).json(minimalResult);
+    }
 
   } catch (error) {
     response.status(500).json({
