@@ -28,8 +28,8 @@ export default async function handler(request, response) {
 
     try {
       const now = new Date();
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+      const startOfDayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const endOfDayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime();
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -41,8 +41,8 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
         const matchesToday = todayData.items.filter(match => {
-          const matchDate = new Date(match.date);
-          return matchDate >= new Date(startOfDay) && matchDate <= new Date(endOfDay);
+          const matchTs = match.date; // timestamp в ms
+          return matchTs >= startOfDayTs && matchTs <= endOfDayTs;
         });
 
         if (matchesToday.length > 0) {
@@ -62,6 +62,7 @@ export default async function handler(request, response) {
     } catch (e) {
       console.error('Ошибка получения сегодняшних матчей', e);
     }
+
 
     const statsResponse = await fetch(`https://open.faceit.com/data/v4/players/${playerId}/stats/cs2`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
