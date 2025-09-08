@@ -39,11 +39,16 @@ export default async function handler(request, response) {
       );
 
       if (todayResponse.ok) {
-        const todayData = await todayResponse.json();
+
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0]; 
+
         const matchesToday = todayData.items.filter(match => {
-          const matchTs = match.date; // timestamp в ms
-          return matchTs >= startOfDayTs && matchTs <= endOfDayTs;
+          const matchDate = new Date(match.date);
+          const matchDay = matchDate.toISOString().split('T')[0];
+          return matchDay === todayStr;
         });
+
 
         if (matchesToday.length > 0) {
           todayMatches.present = true;
