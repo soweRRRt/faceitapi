@@ -38,6 +38,8 @@ export default async function handler(request, response) {
         }
       )
 
+      let lastMatchBeforeToday = null;
+
       //   if (todayResponse.ok) {
       //     const todayData = await todayResponse.json();
 
