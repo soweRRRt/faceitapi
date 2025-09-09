@@ -30,7 +30,7 @@ export default async function handler(request, response) {
 
     try {
       const now = new Date();
-      // const todayStr = now.toLocaleDateString('ru-RU');
+      const todayStr = now.toLocaleDateString('ru-RU');
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
