@@ -36,6 +36,9 @@ export default async function handler(request, response) {
           headers: { 'Authorization': `Bearer ${DEEP_FACEIT_API_KEY}` }
         }
       );
+      const todayData = await todayResponse.json();
+      response.status(200).json(todayData);
+      return;
 
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
