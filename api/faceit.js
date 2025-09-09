@@ -25,8 +25,6 @@ export default async function handler(request, response) {
       elo_lose: 0,
       count: 0
     };
-    
-    let matchesToday;
 
     try {
       const now = new Date();
@@ -42,8 +40,10 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-        // const matchesToday = todayData.items.filter(match => {
-        matchesToday = todayData.items.filter(match => {
+        response.status(200).send(todayData);
+        return;
+
+        const matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date);
           const matchDay = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
