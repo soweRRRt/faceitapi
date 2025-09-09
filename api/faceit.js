@@ -39,51 +39,6 @@ export default async function handler(request, response) {
           headers: { 'Authorization': `Bearer ${DEEP_FACEIT_API_KEY}` }
         }
       )
-      
-      //   if (todayResponse.ok) {
-      //     const todayData = await todayResponse.json();
-
-      //     const matchesToday = todayData.filter(match => {
-      //       const matchDate = new Date(match.date);
-      //       const matchDay = matchDate.toLocaleDateString('ru-RU');
-      //       return matchDay === todayStr;
-      //     });
-
-      //     if (matchesToday.length > 0) {
-      //       todayMatches.present = true;
-      //       todayMatches.count = matchesToday.length;
-
-      //       const sortedMatches = matchesToday.sort((a, b) => a.date - b.date);
-
-      //       const currentElo = playerData.games?.cs2?.faceit_elo || 0;
-
-      //       sortedMatches.forEach((match, index) => {
-      //         if (match.i10 == '1') {
-      //           todayMatches.win++;
-      //         } else {
-      //           todayMatches.lose++;
-      //         }
-
-      //         let eloChange = 0;
-      //         if (index === sortedMatches.length - 1) {
-      //           eloChange = currentElo - parseInt(match.elo || 0);
-      //         } else {
-      //           eloChange = parseInt(sortedMatches[index + 1].elo || 0) - parseInt(match.elo || 0);
-      //         }
-
-      //         todayMatches.elo += eloChange;
-
-      //         if (match.i10 === '1') {
-      //           todayMatches.elo_win += eloChange;
-      //         } else {
-      //           todayMatches.elo_lose += eloChange;
-      //         }
-      //       });
-      //     }
-      //   }
-      // } catch (e) {
-      //   console.error('Ошибка получения сегодняшних матчей', e);
-      // }
 
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
@@ -281,12 +236,51 @@ export default async function handler(request, response) {
       all_player_data: playerData
     };
 
+    // if (viewTemplate) {
+    //   const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
+    //     if (fullMode) {
+    //       return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
+    //     } else {
+    //       return result.api.last_30_stats[key] ?? result.api[key] ?? `{${key}}`;
+    //     }
+    //   });
+    //   response.status(200).send(textOutput);
+    //   return;
+    // }
+
     if (viewTemplate) {
+      // Функция для рекурсивного поиска значения в объекте
+      const findValueInObject = (obj, searchKey) => {
+        // Сначала проверяем корневые поля
+        if (obj.hasOwnProperty(searchKey)) {
+          return obj[searchKey];
+        }
+
+        // Затем рекурсивно ищем во всех дочерних объектах
+        for (const key in obj) {
+          if (typeof obj[key] === 'object' && obj[key] !== null) {
+            const found = findValueInObject(obj[key], searchKey);
+            if (found !== undefined) {
+              return found;
+            }
+          }
+        }
+
+        return undefined;
+      };
+
       const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
         if (fullMode) {
           return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
         } else {
-          return result.api.last_30_stats[key] ?? result.api[key] ?? `{${key}}`;
+          // Если ключ содержит точку - ищем точно по пути
+          if (key.includes('.')) {
+            const parts = key.split('.');
+            return parts.reduce((obj, k) => obj?.[k], result.api) ?? `{${key}}`;
+          } else {
+            // Рекурсивно ищем ключ во всех дочерних объектах api
+            return findValueInObject(result.api, key) ?? `{${key}}`;
+          }
         }
       });
       response.status(200).send(textOutput);
