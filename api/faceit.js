@@ -26,7 +26,7 @@ export default async function handler(request, response) {
       count: 0
     };
     
-    let todayData;
+    let matchesToday;
 
     try {
       const now = new Date();
@@ -40,10 +40,10 @@ export default async function handler(request, response) {
       )
 
       if (todayResponse.ok) {
-        // const todayData = await todayResponse.json();
-        todayData = await todayResponse.json();
+        const todayData = await todayResponse.json();
 
-        const matchesToday = todayData.items.filter(match => {
+        // const matchesToday = todayData.items.filter(match => {
+        matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date);
           const matchDay = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
