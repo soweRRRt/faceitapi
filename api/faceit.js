@@ -37,6 +37,10 @@ export default async function handler(request, response) {
         }
       )
 
+      const todayData = await todayResponse.json();
+      response.status(200).json({ status: todayResponse.status, body: todayData });
+      return;
+
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
@@ -46,14 +50,14 @@ export default async function handler(request, response) {
           return matchDay === todayStr;
         });
 
-        let tester = {
-          matchesToday: matchesToday,
-          now: now,
-          todayStr: todayStr,
-          status: todayResponse.status
-        }
-        response.status(200).json(tester);
-        return;
+        // let tester = {
+        //   matchesToday: matchesToday,
+        //   now: now,
+        //   todayStr: todayStr,
+        //   status: todayResponse.status
+        // }
+        // response.status(200).json(tester);
+        // return;
 
         if (matchesToday.length > 0) {
           todayMatches.present = true;
@@ -88,13 +92,13 @@ export default async function handler(request, response) {
         }
       }
       else {
-        let tester = {
-          now: now,
-          todayStr: todayStr,
-          status: todayResponse.status
-        }
-        response.status(200).json(tester);
-        return;
+        // let tester = {
+        //   now: now,
+        //   todayStr: todayStr,
+        //   status: todayResponse.status
+        // }
+        // response.status(200).json(tester);
+        // return;
       }
     } catch (e) {
       console.error('Ошибка получения сегодняшних матчей', e);
