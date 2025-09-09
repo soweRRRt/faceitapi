@@ -29,9 +29,7 @@ export default async function handler(request, response) {
     try {
       const now = new Date();
       // const todayStr = now.toISOString().split('T')[0];
-      const todayStr = now.getUTCFullYear() + '-' +
-        String(now.getUTCMonth() + 1).padStart(2, '0') + '-' +
-        String(now.getUTCDate()).padStart(2, '0');
+      const todayStr = matchDate.toLocaleDateString('ru-RU');
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -44,8 +42,9 @@ export default async function handler(request, response) {
         const todayData = await todayResponse.json();
 
         const matchesToday = todayData.items.filter(match => {
-          const matchDate = new Date(match.date);
-          const matchDay = matchDate.toISOString().split('T')[0];
+          const matchDate = new Date(match.date * 1000);
+          const matchDay = matchDate.toLocaleDateString('ru-RU');
+          // const matchDay = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
         });
 
