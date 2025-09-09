@@ -29,6 +29,7 @@ export default async function handler(request, response) {
     try {
       const now = new Date();
       const todayStr = now.toLocaleDateString('ru-RU');
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -37,52 +38,52 @@ export default async function handler(request, response) {
         }
       )
 
-    //   if (todayResponse.ok) {
-    //     const todayData = await todayResponse.json();
+      //   if (todayResponse.ok) {
+      //     const todayData = await todayResponse.json();
 
-    //     const matchesToday = todayData.filter(match => {
-    //       const matchDate = new Date(match.date);
-    //       const matchDay = matchDate.toLocaleDateString('ru-RU');
-    //       return matchDay === todayStr;
-    //     });
+      //     const matchesToday = todayData.filter(match => {
+      //       const matchDate = new Date(match.date);
+      //       const matchDay = matchDate.toLocaleDateString('ru-RU');
+      //       return matchDay === todayStr;
+      //     });
 
-    //     if (matchesToday.length > 0) {
-    //       todayMatches.present = true;
-    //       todayMatches.count = matchesToday.length;
+      //     if (matchesToday.length > 0) {
+      //       todayMatches.present = true;
+      //       todayMatches.count = matchesToday.length;
 
-    //       const sortedMatches = matchesToday.sort((a, b) => a.date - b.date);
+      //       const sortedMatches = matchesToday.sort((a, b) => a.date - b.date);
 
-    //       const currentElo = playerData.games?.cs2?.faceit_elo || 0;
+      //       const currentElo = playerData.games?.cs2?.faceit_elo || 0;
 
-    //       sortedMatches.forEach((match, index) => {
-    //         if (match.i10 == '1') {
-    //           todayMatches.win++;
-    //         } else {
-    //           todayMatches.lose++;
-    //         }
+      //       sortedMatches.forEach((match, index) => {
+      //         if (match.i10 == '1') {
+      //           todayMatches.win++;
+      //         } else {
+      //           todayMatches.lose++;
+      //         }
 
-    //         let eloChange = 0;
-    //         if (index === sortedMatches.length - 1) {
-    //           eloChange = currentElo - parseInt(match.elo || 0);
-    //         } else {
-    //           eloChange = parseInt(sortedMatches[index + 1].elo || 0) - parseInt(match.elo || 0);
-    //         }
+      //         let eloChange = 0;
+      //         if (index === sortedMatches.length - 1) {
+      //           eloChange = currentElo - parseInt(match.elo || 0);
+      //         } else {
+      //           eloChange = parseInt(sortedMatches[index + 1].elo || 0) - parseInt(match.elo || 0);
+      //         }
 
-    //         todayMatches.elo += eloChange;
+      //         todayMatches.elo += eloChange;
 
-    //         if (match.i10 === '1') {
-    //           todayMatches.elo_win += eloChange;
-    //         } else {
-    //           todayMatches.elo_lose += eloChange;
-    //         }
-    //       });
-    //     }
-    //   }
-    // } catch (e) {
-    //   console.error('Ошибка получения сегодняшних матчей', e);
-    // }
+      //         if (match.i10 === '1') {
+      //           todayMatches.elo_win += eloChange;
+      //         } else {
+      //           todayMatches.elo_lose += eloChange;
+      //         }
+      //       });
+      //     }
+      //   }
+      // } catch (e) {
+      //   console.error('Ошибка получения сегодняшних матчей', e);
+      // }
 
-    if (todayResponse.ok) {
+      if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
         // Получаем все матчи и сортируем их по дате (от новых к старым)
