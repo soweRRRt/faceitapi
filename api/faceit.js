@@ -43,6 +43,20 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
+        console.log('Всего матчей в ответе:', todayData.items.length);
+
+        // Отладочная информация о всех матчах
+        todayData.items.forEach((match, index) => {
+          const matchDate = new Date(match.date * 1000);
+          console.log(`Матч ${index + 1}:`, {
+            date: matchDate.toLocaleString('ru-RU'),
+            timestamp: match.date,
+            isToday: matchDate.getDate() === now.getDate() &&
+              matchDate.getMonth() === now.getMonth() &&
+              matchDate.getFullYear() === now.getFullYear()
+          });
+        });
+
         matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date * 1000);
           // const matchDay = matchDate.toLocaleDateString('ru-RU');
