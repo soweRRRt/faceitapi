@@ -26,11 +26,12 @@ export default async function handler(request, response) {
       count: 0
     };
 
-    let matchesToday = [];
-
     try {
       const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
+      // const todayStr = now.toISOString().split('T')[0];
+      const todayStr = now.getUTCFullYear() + '-' +
+        String(now.getUTCMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getUTCDate()).padStart(2, '0');
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -42,7 +43,7 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-      matchesToday = todayData.items.filter(match => {
+        const matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date);
           const matchDay = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
@@ -163,8 +164,7 @@ export default async function handler(request, response) {
           wins: last30Stats.wins,
           losses: last30Stats.losses
         },
-        today: todayMatches,
-        matchesToday: matchesToday
+        today: todayMatches
       },
       player_info: {
         avatar: playerData.avatar,
