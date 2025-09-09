@@ -26,6 +26,9 @@ export default async function handler(request, response) {
       count: 0
     };
 
+    let todayData;
+    let matchesToday = [];
+
     try {
       const now = new Date();
       // const todayStr2 = now.toISOString().split('T')[0];
@@ -39,12 +42,11 @@ export default async function handler(request, response) {
       )
 
       if (todayResponse.ok) {
-        const todayData = await todayResponse.json();
+        todayData = await todayResponse.json();
 
-        const matchesToday = todayData.items.filter(match => {
+        matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date * 1000);
           const matchDay = matchDate.toLocaleDateString('ru-RU');
-          // const matchDay2 = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
         });
 
@@ -151,6 +153,8 @@ export default async function handler(request, response) {
       nickname: nickname,
       player_id: playerId,
       now: nowRu,
+      matchesToday: matchesToday,
+      todayData: todayDat
       api: {
         lvl: playerData.games?.cs2?.skill_level || 0,
         elo: playerData.games?.cs2?.faceit_elo || 0,
