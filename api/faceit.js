@@ -30,8 +30,9 @@ export default async function handler(request, response) {
 
     try {
       const now = new Date();
-      // const todayStr2 = now.toISOString().split('T')[0];
-      // const todayStr = now.toLocaleDateString('ru-RU');
+      console.log('=== ЗАПРОС СЕГОДНЯШНИХ МАТЧЕЙ ===');
+      console.log('Текущее время:', now.toLocaleString('ru-RU'));
+      console.log('Player ID:', playerId);
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -50,16 +51,16 @@ export default async function handler(request, response) {
           console.log('Всего матчей в ответе:', todayData.items.length);
 
           // Отладочная информация о всех матчах
-          todayData.items.forEach((match, index) => {
-            const matchDate = new Date(match.date * 1000);
-            console.log(`Матч ${index + 1}:`, {
-              date: matchDate.toLocaleString('ru-RU'),
-              timestamp: match.date,
-              isToday: matchDate.getDate() === now.getDate() &&
-                matchDate.getMonth() === now.getMonth() &&
-                matchDate.getFullYear() === now.getFullYear()
-            });
-          });
+          // todayData.items.forEach((match, index) => {
+          //   const matchDate = new Date(match.date * 1000);
+          //   console.log(`Матч ${index + 1}:`, {
+          //     date: matchDate.toLocaleString('ru-RU'),
+          //     timestamp: match.date,
+          //     isToday: matchDate.getDate() === now.getDate() &&
+          //       matchDate.getMonth() === now.getMonth() &&
+          //       matchDate.getFullYear() === now.getFullYear()
+          //   });
+          // });
 
           matchesToday = todayData.items.filter(match => {
             const matchDate = new Date(match.date * 1000);
