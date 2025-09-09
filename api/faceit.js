@@ -39,9 +39,10 @@ export default async function handler(request, response) {
       );
 
       if (todayResponse.ok) {
+        const todayData = await todayResponse.json();
 
         const now = new Date();
-        const todayStr = now.toISOString().split('T')[0]; 
+        const todayStr = now.toISOString().split('T')[0];
 
         const matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date);
@@ -49,25 +50,25 @@ export default async function handler(request, response) {
           return matchDay === todayStr;
         });
 
-
         if (matchesToday.length > 0) {
           todayMatches.present = true;
           todayMatches.count = matchesToday.length;
 
           matchesToday.forEach(match => {
-            if (match.stats.Result === '1') todayMatches.win++;
+            if (match.stats && match.stats.Result === '1') todayMatches.win++;
             else todayMatches.lose++;
 
-            todayMatches.elo += parseInt(match.stats['ELO Change']) || 0;
-            if (match.stats.Result === '1') todayMatches.elo_win += parseInt(match.stats['ELO Change']) || 0;
-            else todayMatches.elo_lose += parseInt(match.stats['ELO Change']) || 0;
+            const eloChange = parseInt(match.stats?.['ELO Change']) || 0;
+            todayMatches.elo += eloChange;
+
+            if (match.stats && match.stats.Result === '1') todayMatches.elo_win += eloChange;
+            else todayMatches.elo_lose += eloChange;
           });
         }
       }
     } catch (e) {
       console.error('Ошибка получения сегодняшних матчей', e);
     }
-
 
     const statsResponse = await fetch(`https://open.faceit.com/data/v4/players/${playerId}/stats/cs2`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
