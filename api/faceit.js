@@ -50,7 +50,7 @@ export default async function handler(request, response) {
 
         matchesToday = todayData.filter(match => {
           if (!match.date) return false;
-          const matchDate = new Date(match.date * 1000); 
+          const matchDate = new Date(match.date); 
           const matchDay = matchDate.toLocaleDateString('ru-RU');
           const isToday = matchDate.getDate() === now.getDate() &&
             matchDate.getMonth() === now.getMonth() &&
