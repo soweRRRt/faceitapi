@@ -148,7 +148,6 @@ export default async function handler(request, response) {
     const result = {
       nickname: nickname,
       player_id: playerId,
-      matchesToday: matchesToday,
       api: {
         lvl: playerData.games?.cs2?.skill_level || 0,
         elo: playerData.games?.cs2?.faceit_elo || 0,
