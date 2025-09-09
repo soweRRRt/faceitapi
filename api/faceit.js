@@ -37,23 +37,95 @@ export default async function handler(request, response) {
         }
       )
 
-      if (todayResponse.ok) {
+    //   if (todayResponse.ok) {
+    //     const todayData = await todayResponse.json();
+
+    //     const matchesToday = todayData.filter(match => {
+    //       const matchDate = new Date(match.date);
+    //       const matchDay = matchDate.toLocaleDateString('ru-RU');
+    //       return matchDay === todayStr;
+    //     });
+
+    //     if (matchesToday.length > 0) {
+    //       todayMatches.present = true;
+    //       todayMatches.count = matchesToday.length;
+
+    //       const sortedMatches = matchesToday.sort((a, b) => a.date - b.date);
+
+    //       const currentElo = playerData.games?.cs2?.faceit_elo || 0;
+
+    //       sortedMatches.forEach((match, index) => {
+    //         if (match.i10 == '1') {
+    //           todayMatches.win++;
+    //         } else {
+    //           todayMatches.lose++;
+    //         }
+
+    //         let eloChange = 0;
+    //         if (index === sortedMatches.length - 1) {
+    //           eloChange = currentElo - parseInt(match.elo || 0);
+    //         } else {
+    //           eloChange = parseInt(sortedMatches[index + 1].elo || 0) - parseInt(match.elo || 0);
+    //         }
+
+    //         todayMatches.elo += eloChange;
+
+    //         if (match.i10 === '1') {
+    //           todayMatches.elo_win += eloChange;
+    //         } else {
+    //           todayMatches.elo_lose += eloChange;
+    //         }
+    //       });
+    //     }
+    //   }
+    // } catch (e) {
+    //   console.error('Ошибка получения сегодняшних матчей', e);
+    // }
+
+    if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-        const matchesToday = todayData.filter(match => {
-          const matchDate = new Date(match.date);
-          const matchDay = matchDate.toLocaleDateString('ru-RU');
+        // Получаем все матчи и сортируем их по дате (от новых к старым)
+        const allMatches = todayData
+          .filter(match => match.date && match.elo) // Фильтруем матчи с датой и ELO
+          .map(match => ({
+            ...match,
+            dateObj: new Date(match.date),
+            eloValue: parseInt(match.elo || 0)
+          }))
+          .sort((a, b) => b.date - a.date); // Сортируем от новых к старым
+
+        // Находим матчи за сегодня
+        const matchesToday = allMatches.filter(match => {
+          const matchDay = match.dateObj.toLocaleDateString('ru-RU');
           return matchDay === todayStr;
         });
+
+        // Находим последний матч перед сегодняшними (самый новый вчерашний матч)
+        lastMatchBeforeToday = allMatches.find(match => {
+          const matchDay = match.dateObj.toLocaleDateString('ru-RU');
+          return matchDay !== todayStr && match.dateObj < todayStart;
+        });
+
+        // Устанавливаем начальное ELO дня
+        if (lastMatchBeforeToday) {
+          todayMatches.start_elo = lastMatchBeforeToday.eloValue;
+        } else if (matchesToday.length > 0) {
+          // Если нет матчей до сегодня, берем ELO из первого сегодняшнего матча
+          todayMatches.start_elo = matchesToday[matchesToday.length - 1].eloValue;
+        } else {
+          // Если вообще нет матчей, используем текущее ELO
+          todayMatches.start_elo = todayMatches.end_elo;
+        }
 
         if (matchesToday.length > 0) {
           todayMatches.present = true;
           todayMatches.count = matchesToday.length;
 
+          // Сортируем сегодняшние матчи по времени (от старых к новым)
           const sortedMatches = matchesToday.sort((a, b) => a.date - b.date);
 
-          const currentElo = playerData.games?.cs2?.faceit_elo || 0;
-
+          // ПРАВИЛЬНЫЙ расчет изменений ELO
           sortedMatches.forEach((match, index) => {
             if (match.i10 == '1') {
               todayMatches.win++;
@@ -61,11 +133,14 @@ export default async function handler(request, response) {
               todayMatches.lose++;
             }
 
+            // Рассчитываем изменение ELO для этого матча
             let eloChange = 0;
-            if (index === sortedMatches.length - 1) {
-              eloChange = currentElo - parseInt(match.elo || 0);
+            if (index === 0) {
+              // Первый матч дня: разница между ELO после первого матча и начальным ELO
+              eloChange = match.eloValue - todayMatches.start_elo;
             } else {
-              eloChange = parseInt(sortedMatches[index + 1].elo || 0) - parseInt(match.elo || 0);
+              // Последующие матчи: разница между текущим и предыдущим ELO
+              eloChange = match.eloValue - sortedMatches[index - 1].eloValue;
             }
 
             todayMatches.elo += eloChange;
@@ -76,6 +151,19 @@ export default async function handler(request, response) {
               todayMatches.elo_lose += eloChange;
             }
           });
+
+          // Дополнительная проверка: общее изменение должно равняться разнице конечного и начального ELO
+          const expectedTotalChange = todayMatches.end_elo - todayMatches.start_elo;
+          if (Math.abs(todayMatches.elo - expectedTotalChange) > 2) {
+            console.warn('Расхождение в расчетах ELO:', {
+              calculated: todayMatches.elo,
+              expected: expectedTotalChange,
+              start: todayMatches.start_elo,
+              end: todayMatches.end_elo
+            });
+            // Корректируем на случай небольших расхождений
+            todayMatches.elo = expectedTotalChange;
+          }
         }
       }
     } catch (e) {
