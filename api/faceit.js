@@ -55,7 +55,7 @@ export default async function handler(request, response) {
           const currentElo = playerData.games?.cs2?.faceit_elo || 0;
 
           sortedMatches.forEach((match, index) => {
-            if (match.c1 === '1') {
+            if (match.i10 == '1') {
               todayMatches.win++;
             } else {
               todayMatches.lose++;
@@ -70,7 +70,7 @@ export default async function handler(request, response) {
 
             todayMatches.elo += eloChange;
 
-            if (match.c1 === '1') {
+            if (match.i10 === '1') {
               todayMatches.elo_win += eloChange;
             } else {
               todayMatches.elo_lose += eloChange;
