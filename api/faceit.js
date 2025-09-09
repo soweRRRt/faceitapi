@@ -35,10 +35,7 @@ export default async function handler(request, response) {
         {
           headers: { 'Authorization': `Bearer ${DEEP_FACEIT_API_KEY}` }
         }
-      );
-      const todayData = await todayResponse.json();
-      response.status(200).json(todayData);
-      return;
+      )
 
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
@@ -48,6 +45,18 @@ export default async function handler(request, response) {
           const matchDay = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
         });
+
+        let tester = {
+          matchesToday: matchesToday,
+          matchDateDo: match.date,
+          matchDatePosle: matchDate,
+          matchDateISO: matchDay,
+          now: now,
+          todayStr: todayStr
+        }
+
+        response.status(200).json(tester);
+        return;
 
         if (matchesToday.length > 0) {
           todayMatches.present = true;
