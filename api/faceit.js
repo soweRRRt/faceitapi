@@ -154,7 +154,7 @@ export default async function handler(request, response) {
       player_id: playerId,
       now: nowRu,
       matchesToday: matchesToday,
-      todayData: todayDat
+      todayData: todayData,
       api: {
         lvl: playerData.games?.cs2?.skill_level || 0,
         elo: playerData.games?.cs2?.faceit_elo || 0,
