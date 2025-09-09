@@ -28,8 +28,7 @@ export default async function handler(request, response) {
 
     try {
       const now = new Date();
-      const startOfDayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-      const endOfDayTs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime();
+      const todayStr = now.toISOString().split('T')[0];
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -41,9 +40,6 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-        const now = new Date();
-        const todayStr = now.toISOString().split('T')[0];
-
         const matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date);
           const matchDay = matchDate.toISOString().split('T')[0];
@@ -54,15 +50,31 @@ export default async function handler(request, response) {
           todayMatches.present = true;
           todayMatches.count = matchesToday.length;
 
-          matchesToday.forEach(match => {
-            if (match.stats && match.stats.Result === '1') todayMatches.win++;
-            else todayMatches.lose++;
+          const sortedMatches = matchesToday.sort((a, b) => a.date - b.date);
 
-            const eloChange = parseInt(match.stats?.['ELO Change']) || 0;
+          const currentElo = playerData.games?.cs2?.faceit_elo || 0;
+
+          sortedMatches.forEach((match, index) => {
+            if (match.c1 === '1') {
+              todayMatches.win++;
+            } else {
+              todayMatches.lose++;
+            }
+
+            let eloChange = 0;
+            if (index === sortedMatches.length - 1) {
+              eloChange = currentElo - parseInt(match.elo || 0);
+            } else {
+              eloChange = parseInt(sortedMatches[index + 1].elo || 0) - parseInt(match.elo || 0);
+            }
+
             todayMatches.elo += eloChange;
 
-            if (match.stats && match.stats.Result === '1') todayMatches.elo_win += eloChange;
-            else todayMatches.elo_lose += eloChange;
+            if (match.c1 === '1') {
+              todayMatches.elo_win += eloChange;
+            } else {
+              todayMatches.elo_lose += eloChange;
+            }
           });
         }
       }
