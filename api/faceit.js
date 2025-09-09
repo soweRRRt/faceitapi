@@ -48,13 +48,10 @@ export default async function handler(request, response) {
 
         let tester = {
           matchesToday: matchesToday,
-          matchDateDo: match.date,
-          matchDatePosle: matchDate,
-          matchDateISO: matchDay,
           now: now,
-          todayStr: todayStr
+          todayStr: todayStr,
+          status: todayResponse.status
         }
-
         response.status(200).json(tester);
         return;
 
@@ -89,6 +86,15 @@ export default async function handler(request, response) {
             }
           });
         }
+      }
+      else {
+        let tester = {
+          now: now,
+          todayStr: todayStr,
+          status: todayResponse.status
+        }
+        response.status(200).json(tester);
+        return;
       }
     } catch (e) {
       console.error('Ошибка получения сегодняшних матчей', e);
