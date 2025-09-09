@@ -28,6 +28,7 @@ export default async function handler(request, response) {
 
     let todayData;
     let matchesToday = [];
+    let equalResult = [];
 
     try {
       const now = new Date();
@@ -47,6 +48,7 @@ export default async function handler(request, response) {
         matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date * 1000);
           const matchDay = matchDate.toLocaleDateString('ru-RU');
+          equalResult.push(matchDay === todayStr);
           return matchDay === todayStr;
         });
 
@@ -153,8 +155,7 @@ export default async function handler(request, response) {
       nickname: nickname,
       player_id: playerId,
       now: nowRu,
-      matchesToday: matchesToday,
-      todayData: todayData,
+      equalResult: equalResult,
       api: {
         lvl: playerData.games?.cs2?.skill_level || 0,
         elo: playerData.games?.cs2?.faceit_elo || 0,
