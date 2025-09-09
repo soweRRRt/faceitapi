@@ -26,6 +26,8 @@ export default async function handler(request, response) {
       count: 0
     };
 
+    let lastMatchBeforeToday = null;
+
     try {
       const now = new Date();
       const todayStr = now.toLocaleDateString('ru-RU');
@@ -37,9 +39,7 @@ export default async function handler(request, response) {
           headers: { 'Authorization': `Bearer ${DEEP_FACEIT_API_KEY}` }
         }
       )
-
-      let lastMatchBeforeToday = null;
-
+      
       //   if (todayResponse.ok) {
       //     const todayData = await todayResponse.json();
 
