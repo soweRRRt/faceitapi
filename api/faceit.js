@@ -26,6 +26,8 @@ export default async function handler(request, response) {
       count: 0
     };
 
+    let matchesToday = [];
+
     try {
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
@@ -40,14 +42,11 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-        const matchesToday = todayData.items.filter(match => {
+      matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date);
           const matchDay = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
         });
-
-        response.status(200).send(matchesToday);
-        return;
 
         if (matchesToday.length > 0) {
           todayMatches.present = true;
@@ -164,7 +163,8 @@ export default async function handler(request, response) {
           wins: last30Stats.wins,
           losses: last30Stats.losses
         },
-        today: todayMatches
+        today: todayMatches,
+        matchesToday: matchesToday
       },
       player_info: {
         avatar: playerData.avatar,
