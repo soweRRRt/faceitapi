@@ -26,8 +26,6 @@ export default async function handler(request, response) {
       count: 0
     };
 
-    let matchesToday = [];
-
     try {
       const now = new Date();
       const todayStr = now.toLocaleDateString('ru-RU');
@@ -42,24 +40,11 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-        matchesToday = todayData.filter(match => {
+        const matchesToday = todayData.filter(match => {
           const matchDate = new Date(match.date);
           const matchDay = matchDate.toLocaleDateString('ru-RU');
           return matchDay === todayStr;
         });
-
-        // matchesToday = todayData.filter(match => {
-        //   if (!match.date) return false;
-        //   const matchDate = new Date(match.date); 
-        //   const matchDay = matchDate.toLocaleDateString('ru-RU');
-        //   const isToday = matchDate.getDate() === now.getDate() &&
-        //     matchDate.getMonth() === now.getMonth() &&
-        //     matchDate.getFullYear() === now.getFullYear();
-        //   console.log(`Матч: ${new Date(match.date * 1000)}, сегодняшний день: ${todayStr}, день матча: ${matchDay}, isToday: ${isToday}`);
-        //   return isToday;
-        // });
-
-        console.log(`Найдено матчей за сегодня: ${matchesToday.length}`);
 
         if (matchesToday.length > 0) {
           todayMatches.present = true;
@@ -160,7 +145,6 @@ export default async function handler(request, response) {
     const result = {
       nickname: nickname,
       player_id: playerId,
-      matchesToday: matchesToday,
       api: {
         lvl: playerData.games?.cs2?.skill_level || 0,
         elo: playerData.games?.cs2?.faceit_elo || 0,
