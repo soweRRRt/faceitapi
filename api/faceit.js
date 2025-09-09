@@ -26,14 +26,12 @@ export default async function handler(request, response) {
       count: 0
     };
 
-    let todayData;
     let matchesToday = [];
-    let equalResult = [];
 
     try {
       const now = new Date();
       // const todayStr2 = now.toISOString().split('T')[0];
-      const todayStr = now.toLocaleDateString('ru-RU');
+      // const todayStr = now.toLocaleDateString('ru-RU');
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -43,13 +41,15 @@ export default async function handler(request, response) {
       )
 
       if (todayResponse.ok) {
-        todayData = await todayResponse.json();
+        const todayData = await todayResponse.json();
 
         matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date * 1000);
-          const matchDay = matchDate.toLocaleDateString('ru-RU');
-          equalResult.push(matchDay === todayStr);
-          return matchDay === todayStr;
+          // const matchDay = matchDate.toLocaleDateString('ru-RU');
+          // return matchDay === todayStr;
+          return matchDate.getDate() === now.getDate() &&
+            matchDate.getMonth() === now.getMonth() &&
+            matchDate.getFullYear() === now.getFullYear();
         });
 
         if (matchesToday.length > 0) {
@@ -148,14 +148,10 @@ export default async function handler(request, response) {
       last30Stats.winrate_30 = ((last30Stats.wins / last30Stats.matches_count) * 100).toFixed(0);
     }
 
-    const now = new Date();
-    const nowRu = now.toLocaleDateString('ru-RU');
-
     const result = {
       nickname: nickname,
       player_id: playerId,
-      now: nowRu,
-      equalResult: equalResult,
+      matchesToday: matchesToday,
       api: {
         lvl: playerData.games?.cs2?.skill_level || 0,
         elo: playerData.games?.cs2?.faceit_elo || 0,
