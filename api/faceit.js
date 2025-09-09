@@ -40,14 +40,14 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-        response.status(200).send(todayData);
-        return;
-
         const matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date);
           const matchDay = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
         });
+
+        response.status(200).send(matchesToday);
+        return;
 
         if (matchesToday.length > 0) {
           todayMatches.present = true;
