@@ -28,8 +28,10 @@ export default async function handler(request, response) {
 
     try {
       const now = new Date();
-      // const todayStr = now.toISOString().split('T')[0];
+      const todayStr2 = now.toISOString().split('T')[0];
       const todayStr = matchDate.toLocaleDateString('ru-RU');
+      console.log("todayStr2: " + todayStr2);
+      console.log("todayStr: " + todayStr);
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -44,7 +46,9 @@ export default async function handler(request, response) {
         const matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date * 1000);
           const matchDay = matchDate.toLocaleDateString('ru-RU');
-          // const matchDay = matchDate.toISOString().split('T')[0];
+          const matchDay2 = matchDate.toISOString().split('T')[0];
+          console.log("matchDay: " + matchDay);
+          console.log("matchDay2: " + matchDay2);
           return matchDay === todayStr;
         });
 
