@@ -28,10 +28,8 @@ export default async function handler(request, response) {
 
     try {
       const now = new Date();
-      const todayStr2 = now.toISOString().split('T')[0];
-      const todayStr = matchDate.toLocaleDateString('ru-RU');
-      console.log("todayStr2: " + todayStr2);
-      console.log("todayStr: " + todayStr);
+      // const todayStr2 = now.toISOString().split('T')[0];
+      const todayStr = now.toLocaleDateString('ru-RU');
 
       const todayResponse = await fetch(
         `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
@@ -46,9 +44,7 @@ export default async function handler(request, response) {
         const matchesToday = todayData.items.filter(match => {
           const matchDate = new Date(match.date * 1000);
           const matchDay = matchDate.toLocaleDateString('ru-RU');
-          const matchDay2 = matchDate.toISOString().split('T')[0];
-          console.log("matchDay: " + matchDay);
-          console.log("matchDay2: " + matchDay2);
+          // const matchDay2 = matchDate.toISOString().split('T')[0];
           return matchDay === todayStr;
         });
 
@@ -148,9 +144,13 @@ export default async function handler(request, response) {
       last30Stats.winrate_30 = ((last30Stats.wins / last30Stats.matches_count) * 100).toFixed(0);
     }
 
+    const now = new Date();
+    const nowRu = now.toLocaleDateString('ru-RU');
+
     const result = {
       nickname: nickname,
       player_id: playerId,
+      now: nowRu,
       api: {
         lvl: playerData.games?.cs2?.skill_level || 0,
         elo: playerData.games?.cs2?.faceit_elo || 0,
