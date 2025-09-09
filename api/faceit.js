@@ -42,22 +42,22 @@ export default async function handler(request, response) {
       if (todayResponse.ok) {
         const todayData = await todayResponse.json();
 
-        // matchesToday = todayData.filter(match => {
-        //   const matchDate = new Date(match.date * 1000);
-        //   const matchDay = matchDate.toLocaleDateString('ru-RU');
-        //   return matchDay === todayStr;
-        // });
-
         matchesToday = todayData.filter(match => {
-          if (!match.date) return false;
-          const matchDate = new Date(match.date); 
+          const matchDate = new Date(match.date);
           const matchDay = matchDate.toLocaleDateString('ru-RU');
-          const isToday = matchDate.getDate() === now.getDate() &&
-            matchDate.getMonth() === now.getMonth() &&
-            matchDate.getFullYear() === now.getFullYear();
-          console.log(`Матч: ${new Date(match.date * 1000)}, сегодняшний день: ${todayStr}, день матча: ${matchDay}, isToday: ${isToday}`);
-          return isToday;
+          return matchDay === todayStr;
         });
+
+        // matchesToday = todayData.filter(match => {
+        //   if (!match.date) return false;
+        //   const matchDate = new Date(match.date); 
+        //   const matchDay = matchDate.toLocaleDateString('ru-RU');
+        //   const isToday = matchDate.getDate() === now.getDate() &&
+        //     matchDate.getMonth() === now.getMonth() &&
+        //     matchDate.getFullYear() === now.getFullYear();
+        //   console.log(`Матч: ${new Date(match.date * 1000)}, сегодняшний день: ${todayStr}, день матча: ${matchDay}, isToday: ${isToday}`);
+        //   return isToday;
+        // });
 
         console.log(`Найдено матчей за сегодня: ${matchesToday.length}`);
 
