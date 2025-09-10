@@ -145,7 +145,7 @@ export default async function handler(request, response) {
                     ).join(', ');
 
                     if (todayMatchesDetailed.length > 0) {
-                        const lastMatch = todayMatchesDetailed[todayMatchesDetailed.length - 1];
+                        const lastMatch = todayMatchesDetailed[0];
                         const hsPercentage = calculateHSPercentage(lastMatch.headshots, lastMatch.kills);
 
                         todayMatches.last_match =
