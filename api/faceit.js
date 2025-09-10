@@ -24,12 +24,12 @@ export default async function handler(request, response) {
       elo_win: 0,
       elo_lose: 0,
       count: 0,
-      // report: "",
-      // last_match: ""
+      report: "",
+      last_match: ""
     };
 
     let lastMatchBeforeToday = null;
-    // let todayMatchesDetailed = [];
+    let todayMatchesDetailed = [];
 
     try {
       const now = new Date();
@@ -47,7 +47,8 @@ export default async function handler(request, response) {
         const todayData = await todayResponse.json();
 
         const allMatches = todayData
-          .filter(match => match.date && match.elo)
+          .filter(match => match.date)
+          // .filter(match => match.date && match.elo)
           .map(match => ({
             ...match,
             dateObj: new Date(match.date),
@@ -60,12 +61,12 @@ export default async function handler(request, response) {
           return matchDay === todayStr;
         });
 
-        console.log("todayData");
-        console.log(todayData);
-        console.log("ALL MATCHES");
-        console.log(allMatches);
-        console.log("TODAY MATCHES");
-        console.log(matchesToday);
+        // console.log("todayData");
+        // console.log(todayData);
+        // console.log("ALL MATCHES");
+        // console.log(allMatches);
+        // console.log("TODAY MATCHES");
+        // console.log(matchesToday);
 
         lastMatchBeforeToday = allMatches.find(match => {
           const matchDay = match.dateObj.toLocaleDateString('ru-RU');
@@ -108,31 +109,31 @@ export default async function handler(request, response) {
               todayMatches.elo_lose += eloChange;
             }
 
-            // todayMatchesDetailed.push({
-            //   result: match.i10 === '1' ? 'WIN' : 'LOSE',
-            //   score: `${match.i1 || 0}:${match.i2 || 0}`,
-            //   map: match.i3 || 'Unknown',
-            //   elo_change: eloChange,
-            //   kills: match.i4 || 0,
-            //   deaths: match.i5 || 0,
-            //   assists: match.i6 || 0,
-            //   headshots: match.i7 || 0,
-            //   kd_ratio: match.i8 || 0,
-            //   mvps: match.i9 || 0
-            // });
+            todayMatchesDetailed.push({
+              result: match.i10 === '1' ? 'WIN' : 'LOSE',
+              score: `${match.i1 || 0}:${match.i2 || 0}`,
+              map: match.i3 || 'Unknown',
+              elo_change: eloChange,
+              kills: match.i4 || 0,
+              deaths: match.i5 || 0,
+              assists: match.i6 || 0,
+              headshots: match.i7 || 0,
+              kd_ratio: match.i8 || 0,
+              mvps: match.i9 || 0
+            });
           });
 
-          // todayMatches.report = todayMatchesDetailed.map(match =>
-          //   `${match.result} ${match.score} ${match.map} (${match.elo_change > 0 ? '+' : ''}${match.elo_change})`
-          // ).join(', ');
+          todayMatches.report = todayMatchesDetailed.map(match =>
+            `${match.result} ${match.score} ${match.map} (${match.elo_change > 0 ? '+' : ''}${match.elo_change})`
+          ).join(', ');
 
-          // if (todayMatchesDetailed.length > 0) {
-          //   const lastMatch = todayMatchesDetailed[todayMatchesDetailed.length - 1];
-          //   todayMatches.last_match = `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${lastMatch.map} (${lastMatch.score}), ` +
-          //     `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
-          //     `KDR: ${lastMatch.kd_ratio} HS: ${Math.round((lastMatch.headshots / lastMatch.kills) * 100) || 0}% ` +
-          //     `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
-          // }
+          if (todayMatchesDetailed.length > 0) {
+            const lastMatch = todayMatchesDetailed[todayMatchesDetailed.length - 1];
+            todayMatches.last_match = `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${lastMatch.map} (${lastMatch.score}), ` +
+              `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
+              `KDR: ${lastMatch.kd_ratio} HS: ${Math.round((lastMatch.headshots / lastMatch.kills) * 100) || 0}% ` +
+              `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
+          }
 
           const expectedTotalChange = todayMatches.end_elo - todayMatches.start_elo;
           if (Math.abs(todayMatches.elo - expectedTotalChange) > 2) {
