@@ -10,6 +10,7 @@ export default async function handler(request, response) {
         return defaultMapName
             .replace('de_', '')
             .replace(/_/g, ' ')
+            .replace(/(\D+)(\d+)/, '$1 $2')
             .replace(/(\d)/g, (digit) => {
                 return 'I'.repeat(parseInt(digit));
             })
@@ -46,6 +47,21 @@ export default async function handler(request, response) {
 
         const playerData = await playerResponse.json();
         const playerId = playerData.player_id;
+        const region = playerData.games?.cs2?.region || 'EU';
+
+        let regionRanking = null;
+        try {
+            const rankingResponse = await fetchWithAuth(
+                `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}/players/${playerId}?offset=0&limit=1`
+            );
+
+            if (rankingResponse.ok) {
+                const rankingData = await rankingResponse.json();
+                regionRanking = rankingData.position;
+            }
+        } catch (e) {
+            console.error('Ошибка получения регионального рейтинга', e);
+        }
 
         const todayMatches = {
             present: false,
@@ -237,6 +253,7 @@ export default async function handler(request, response) {
             api: {
                 lvl: playerData.games?.cs2?.skill_level || 0,
                 elo: playerData.games?.cs2?.faceit_elo || 0,
+                top: regionRanking,
                 trend: last5MatchesTrend,
                 last_30_stats: {
                     matches: last30Stats.matches_count,
@@ -261,7 +278,8 @@ export default async function handler(request, response) {
                 skill_level: playerData.games?.cs2?.skill_level || 0,
                 faceit_elo: playerData.games?.cs2?.faceit_elo || 0,
                 region: playerData.games?.cs2?.region,
-                game_player_id: playerData.games?.cs2?.game_player_id
+                game_player_id: playerData.games?.cs2?.game_player_id,
+                region_ranking: regionRanking
             },
             lifetime_stats: {
                 win_rate: statsData.lifetime['Win Rate %'],
