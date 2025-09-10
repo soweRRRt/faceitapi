@@ -67,7 +67,7 @@ export default async function handler(request, response) {
             present: false,
             win: 0,
             lose: 0,
-            elo: 0,
+            elo: "",
             elo_win: 0,
             elo_lose: 0,
             count: 0,
@@ -189,7 +189,7 @@ export default async function handler(request, response) {
                             result: isWin ? 'WIN' : 'LOSE',
                             score: formatScore(match.i18),
                             map: match.i1 || 'Unknown',
-                            elo_change: eloChange,
+                            elo_change: eloChange > 0 ? `+${eloChange}` : eloChange.toString(),
                             kills: match.i6 || 0,
                             deaths: match.i8 || 0,
                             assists: match.i7 || 0,
@@ -200,7 +200,8 @@ export default async function handler(request, response) {
                     });
 
                     if (lastMatchBeforeToday?.eloValue) {
-                        todayMatches.elo = calculateEloChange(todayMatches.end_elo, lastMatchBeforeToday.eloValue);
+                        const eloChange = calculateEloChange(todayMatches.end_elo, lastMatchBeforeToday.eloValue);
+                        todayMatches.elo = eloChange > 0 ? `+${eloChange}` : eloChange.toString();
                     }
 
                     todayMatches.report = todayMatchesDetailed.reverse().map(match =>
@@ -217,18 +218,18 @@ export default async function handler(request, response) {
                             `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
                             `KDR: ${lastMatch.kd_ratio} HS: ${hsPercentage}% ` +
                             `MVP: ${lastMatch.mvps}` +
-                            (lastMatch.elo_change !== 0 ? ` ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}` : '');
+                            (lastMatch.elo_change !== "0" ? ` ELO: ${lastMatch.elo_change}` : '');
                     }
 
                     const expectedTotalChange = calculateEloChange(todayMatches.end_elo, todayMatches.start_elo);
-                    if (Math.abs(todayMatches.elo - expectedTotalChange) > 2) {
+                    if (Math.abs(parseInt(todayMatches.elo) - expectedTotalChange) > 2) {
                         console.warn('Расхождение в расчетах ELO:', {
-                            calculated: todayMatches.elo,
+                            calculated: parseInt(todayMatches.elo),
                             expected: expectedTotalChange,
                             start: todayMatches.start_elo,
                             end: todayMatches.end_elo
                         });
-                        todayMatches.elo = expectedTotalChange;
+                        todayMatches.elo = expectedTotalChange > 0 ? `+${expectedTotalChange}` : expectedTotalChange.toString();
                     }
                 }
             }
