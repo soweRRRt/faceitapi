@@ -24,8 +24,7 @@ export default async function handler(request, response) {
     return null;
   }
 
-  // Функция для получения красивого названия карты
-  async function getBeautifulMapName(defaultMapName) {
+  function getBeautifulMapName(defaultMapName) {
     // const mapNames = {
     //   'de_dust2': 'Dust II',
     //   'de_mirage': 'Mirage',
