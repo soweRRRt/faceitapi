@@ -502,25 +502,13 @@ export default async function handler(request, response) {
                     return matchDay === todayStr;
                 });
 
-                // Ищем последний матч ДО сегодняшнего дня
-                lastMatchBeforeToday = null;
-                for (let i = allMatches.length - 1; i >= 0; i--) {
-                    const match = allMatches[i];
+                lastMatchBeforeToday = allMatches.find(match => {
                     const matchDay = match.dateObj.toLocaleDateString('ru-RU');
-                    if (matchDay !== todayStr && match.dateObj < todayStart) {
-                        lastMatchBeforeToday = match;
-                        break;
-                    }
-                }
+                    return matchDay !== todayStr && match.dateObj < todayStart;
+                });
 
-                // Правильно устанавливаем start_elo
-                if (lastMatchBeforeToday) {
-                    todayMatches.start_elo = lastMatchBeforeToday.eloValue;
-                } else if (matchesToday.length > 0) {
-                    todayMatches.start_elo = matchesToday[0].eloValue;
-                } else {
-                    todayMatches.start_elo = todayMatches.end_elo;
-                }
+                todayMatches.start_elo = lastMatchBeforeToday?.eloValue ||
+                    (matchesToday.length > 0 ? matchesToday[0].eloValue : todayMatches.end_elo);
 
                 if (matchesToday.length > 0) {
                     todayMatches.present = true;
@@ -569,7 +557,7 @@ export default async function handler(request, response) {
                     ).join(', ');
 
                     if (todayMatchesDetailed.length > 0) {
-                        const lastMatch = todayMatchesDetailed[todayMatchesDetailed.length - 1];
+                        const lastMatch = todayMatchesDetailed[todayMatchesDetailed.length - 1]; // Последний матч дня
                         todayMatches.last_match =
                             `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
                             `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
