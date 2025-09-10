@@ -421,15 +421,14 @@ export default async function handler(request, response) {
             elo_lose: 0,
             count: 0,
             start_elo: 0,
-            end_elo: playerData.games?.cs2?.faceit_elo || 0
+            end_elo: playerData.games?.cs2?.faceit_elo || 0,
+            report: "",
+            last_match: ""
         };
 
-        let report = "";
-        let last_match = "";
         let lastMatchBeforeToday = null;
         let todayMatchesDetailed = [];
 
-        // Переменные для всех матчей
         let allMatchesReport = "";
         let allMatchesLastMatch = "";
         let allMatchesDetailed = [];
@@ -456,16 +455,15 @@ export default async function handler(request, response) {
                     }))
                     .sort((a, b) => b.date - a.date);
 
-                // Обработка всех матчей
                 allMatchesDetailed = allMatches.map(match => {
                     const isWin = match.i10 === '1';
                     const hsPercentage = calculateHSPercentage(match.i13 || 0, match.i6 || 1);
-                    
+
                     return {
                         result: isWin ? 'WIN' : 'LOSE',
                         score: formatScore(match.i18),
                         map: match.i1 || 'Unknown',
-                        elo_change: 0, // Будет рассчитано позже
+                        elo_change: 0,
                         kills: match.i6 || 0,
                         deaths: match.i8 || 0,
                         assists: match.i7 || 0,
@@ -477,7 +475,6 @@ export default async function handler(request, response) {
                     };
                 });
 
-                // Рассчитываем изменения ELO для всех матчей
                 for (let i = 0; i < allMatchesDetailed.length; i++) {
                     if (i === 0) {
                         allMatchesDetailed[i].elo_change = 0;
@@ -488,13 +485,12 @@ export default async function handler(request, response) {
                     }
                 }
 
-                // Формируем report для всех матчей
-                allMatchesReport = allMatchesDetailed.map(match =>
+                const last5Matches = allMatchesDetailed.slice(0, 5);
+                allMatchesReport = last5Matches.map(match =>
                     `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
                     (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
                 ).join(', ');
 
-                // Последний матч из всех
                 if (allMatchesDetailed.length > 0) {
                     const lastMatch = allMatchesDetailed[0];
                     allMatchesLastMatch =
@@ -504,7 +500,6 @@ export default async function handler(request, response) {
                         `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
                 }
 
-                // Обработка сегодняшних матчей (как было раньше)
                 const matchesToday = allMatches.filter(match => {
                     const matchDay = match.dateObj.toLocaleDateString('ru-RU');
                     return matchDay === todayStr;
@@ -558,7 +553,7 @@ export default async function handler(request, response) {
                         todayMatches.elo = calculateEloChange(todayMatches.end_elo, lastMatchBeforeToday.eloValue);
                     }
 
-                    report = todayMatchesDetailed.reverse().map(match =>
+                    todayMatches.report = todayMatchesDetailed.reverse().map(match =>
                         `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
                         (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
                     ).join(', ');
@@ -567,7 +562,7 @@ export default async function handler(request, response) {
                         const lastMatch = todayMatchesDetailed[0];
                         const hsPercentage = calculateHSPercentage(lastMatch.headshots, lastMatch.kills);
 
-                        last_match =
+                        todayMatches.last_match =
                             `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
                             `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
                             `KDR: ${lastMatch.kd_ratio} HS: ${hsPercentage}% ` +
@@ -669,13 +664,9 @@ export default async function handler(request, response) {
                     wins: last30Stats.wins,
                     losses: last30Stats.losses
                 },
-                report: report,
-                last_match: last_match,
                 today: todayMatches,
-                // Добавляем данные для всех матчей
                 all_matches_report: allMatchesReport,
                 all_matches_last_match: allMatchesLastMatch,
-                all_matches_count: allMatchesDetailed.length
             },
             player_info: {
                 avatar: playerData.avatar,
@@ -703,7 +694,7 @@ export default async function handler(request, response) {
                 average_mvps: statsData.lifetime['Average MVPs']
             },
             last_matches: lastMatches,
-            all_matches_detailed: allMatchesDetailed, // Добавляем детальную информацию о всех матчах
+            all_matches_detailed: allMatchesDetailed,
             all_stats: statsData,
             all_player_data: playerData
         };
