@@ -36,7 +36,8 @@ export default async function handler(request, response) {
     //   'de_anubis': 'Anubis'
     // };
 
-    return mapNames[defaultMapName] || defaultMapName.replace('de_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    // return mapNames[defaultMapName] || defaultMapName.replace('de_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    return defaultMapName.replace('de_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
 
   try {
