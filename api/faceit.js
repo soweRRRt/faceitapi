@@ -25,19 +25,10 @@ export default async function handler(request, response) {
   }
 
   function getBeautifulMapName(defaultMapName) {
-    // const mapNames = {
-    //   'de_dust2': 'Dust II',
-    //   'de_mirage': 'Mirage',
-    //   'de_inferno': 'Inferno',
-    //   'de_nuke': 'Nuke',
-    //   'de_overpass': 'Overpass',
-    //   'de_vertigo': 'Vertigo',
-    //   'de_ancient': 'Ancient',
-    //   'de_anubis': 'Anubis'
-    // };
-
-    // return mapNames[defaultMapName] || defaultMapName.replace('de_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    return defaultMapName.replace('de_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    console.log('Input map name:', defaultMapName);
+    const result = defaultMapName.replace('de_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    console.log('Output map name:', result);
+    return result;
   }
 
   try {
