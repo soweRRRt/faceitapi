@@ -106,7 +106,6 @@ export default async function handler(request, response) {
                     .sort((a, b) => b.date - a.date);
 
                 // Заменяем блок с allMatchesDetailed:
-                // Заменяем блок с allMatchesDetailed:
                 allMatchesDetailed = allMatches.map((match, index, array) => {
                     const isWin = match.i10 === '1';
                     const kills = parseInt(match.i6 || 0);
@@ -115,15 +114,9 @@ export default async function handler(request, response) {
 
                     let eloChange = 0;
 
-                    // Для самого старого матча (последнего в массиве) используем другой подход
-                    if (index === array.length - 1) {
-                        // Для самого старого матча изменение = его ELO минус (его ELO - предполагаемое изменение)
-                        // Или просто 0, если нет данных
-                        eloChange = 0; // Или можно попробовать оценить based on win/loss
-                    } else {
-                        // Для всех остальных матчей: ELO после матча минус ELO до матча
-                        const eloBeforeMatch = array[index + 1].eloValue;
-                        eloChange = calculateEloChange(match.eloValue, eloBeforeMatch);
+                    // Проверяем, что у текущего матча и предыдущего есть eloValue
+                    if (index > 0 && match.eloValue && array[index - 1].eloValue) {
+                        eloChange = calculateEloChange(match.eloValue, array[index - 1].eloValue);
                     }
 
                     return {
@@ -143,16 +136,19 @@ export default async function handler(request, response) {
                     };
                 });
 
-                // Берем последние 5 матчей (первые в массиве, так как отсортированы от новых к старым)
-                const last5Matches = allMatchesDetailed.slice(0, 5);
+                // Реверсируем для отображения от новых к старым
+                const reversedMatches = [...allMatchesDetailed].reverse();
+
+                // Берем последние 5 матчей (первые в reversed массиве)
+                const last5Matches = reversedMatches.slice(0, 5);
                 allMatchesReport = last5Matches.map(match =>
                     `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
                     (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
                 ).join(', ');
 
                 // Последний матч (самый новый)
-                if (allMatchesDetailed.length > 0) {
-                    const lastMatch = allMatchesDetailed[0];
+                if (reversedMatches.length > 0) {
+                    const lastMatch = reversedMatches[0];
                     allMatchesLastMatch =
                         `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
                         `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
