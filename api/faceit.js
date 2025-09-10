@@ -60,6 +60,11 @@ export default async function handler(request, response) {
           return matchDay === todayStr;
         });
 
+        console.log("ALL MATCHES");
+        console.log(allMatches);
+        console.log("TODAY MATCHES");
+        console.log(matchesToday);
+
         lastMatchBeforeToday = allMatches.find(match => {
           const matchDay = match.dateObj.toLocaleDateString('ru-RU');
           return matchDay !== todayStr && match.dateObj < todayStart;
