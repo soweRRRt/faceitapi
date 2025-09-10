@@ -67,7 +67,7 @@ export default async function handler(request, response) {
             present: false,
             win: 0,
             lose: 0,
-            elo: "",
+            elo: "0",
             elo_win: 0,
             elo_lose: 0,
             count: 0,
