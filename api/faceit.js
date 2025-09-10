@@ -139,14 +139,13 @@ export default async function handler(request, response) {
                         todayMatches.elo = calculateEloChange(todayMatches.end_elo, lastMatchBeforeToday.eloValue);
                     }
 
-                    const todayMatchesDetailedReversed = todayMatchesDetailed;
-                    todayMatches.report = todayMatchesDetailedReversed.reverse().map(match =>
+                    todayMatches.report = todayMatchesDetailed.reverse().map(match =>
                         `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
                         (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
                     ).join(', ');
 
                     if (todayMatchesDetailed.length > 0) {
-                        const lastMatch = todayMatchesDetailed[todayMatchesDetailed.length - 1];
+                        const lastMatch = todayMatchesDetailed[1];
                         const hsPercentage = calculateHSPercentage(lastMatch.headshots, lastMatch.kills);
 
                         todayMatches.last_match =
