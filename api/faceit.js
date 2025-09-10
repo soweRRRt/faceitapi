@@ -81,6 +81,7 @@ export default async function handler(request, response) {
         let allMatchesLastMatch = "";
         let lastMatchBeforeToday = null;
         let todayMatchesDetailed = [];
+        let allMatchesDetailed = [];
 
         try {
             const now = new Date();
