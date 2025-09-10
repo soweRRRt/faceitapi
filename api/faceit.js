@@ -120,7 +120,7 @@ export default async function handler(request, response) {
               deaths: match.i8 || 0,
               assists: match.i7 || 0,
               headshots: match.i13 || 0,
-              kd_ratio: match.с2 || 0,
+              kd_ratio: match.c2 || 0,
               mvps: match.i9 || 0
             });
           });
@@ -130,7 +130,8 @@ export default async function handler(request, response) {
           }
 
           todayMatches.report = todayMatchesDetailed.map(match =>
-            `${match.result} ${match.score} ${match.map} (${match.elo_change > 0 ? '+' : ''}${match.elo_change})`
+            `${match.result} ${match.score} ${match.map}` +
+            (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
           ).join(', ');
 
           if (todayMatchesDetailed.length > 0) {
