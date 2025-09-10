@@ -106,6 +106,7 @@ export default async function handler(request, response) {
                     .sort((a, b) => b.date - a.date);
 
                 // Заменяем блок с allMatchesDetailed:
+                // Заменяем блок с allMatchesDetailed:
                 allMatchesDetailed = allMatches.map((match, index, array) => {
                     const isWin = match.i10 === '1';
                     const kills = parseInt(match.i6 || 0);
@@ -113,10 +114,15 @@ export default async function handler(request, response) {
                     const hsPercentage = calculateHSPercentage(headshots, kills);
 
                     let eloChange = 0;
-                    // Правильный расчет: ELO после матча минус ELO до матча
-                    // ELO до матча = ELO после предыдущего матча (если он есть)
-                    if (index < array.length - 1) {
-                        const eloBeforeMatch = array[index + 1].eloValue; // Более старый матч имеет более ранний ELO
+
+                    // Для самого старого матча (последнего в массиве) используем другой подход
+                    if (index === array.length - 1) {
+                        // Для самого старого матча изменение = его ELO минус (его ELO - предполагаемое изменение)
+                        // Или просто 0, если нет данных
+                        eloChange = 0; // Или можно попробовать оценить based on win/loss
+                    } else {
+                        // Для всех остальных матчей: ELO после матча минус ELO до матча
+                        const eloBeforeMatch = array[index + 1].eloValue;
                         eloChange = calculateEloChange(match.eloValue, eloBeforeMatch);
                     }
 
