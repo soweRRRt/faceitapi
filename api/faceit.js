@@ -8,6 +8,38 @@ export default async function handler(request, response) {
   const FACEIT_API_KEY = process.env.FACEIT_API_KEY;
   const DEEP_FACEIT_API_KEY = process.env.DEEP_FACEIT_API_KEY;
 
+  async function getMatchDetails(matchId) {
+    try {
+      const matchResponse = await fetch(`https://open.faceit.com/data/v4/matches/${matchId}`, {
+        headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
+      });
+
+      if (matchResponse.ok) {
+        const matchData = await matchResponse.json();
+        return matchData;
+      }
+    } catch (e) {
+      console.error('Ошибка получения деталей матча', e);
+    }
+    return null;
+  }
+
+  // Функция для получения красивого названия карты
+  async function getBeautifulMapName(defaultMapName) {
+    // const mapNames = {
+    //   'de_dust2': 'Dust II',
+    //   'de_mirage': 'Mirage',
+    //   'de_inferno': 'Inferno',
+    //   'de_nuke': 'Nuke',
+    //   'de_overpass': 'Overpass',
+    //   'de_vertigo': 'Vertigo',
+    //   'de_ancient': 'Ancient',
+    //   'de_anubis': 'Anubis'
+    // };
+
+    return mapNames[defaultMapName] || defaultMapName.replace('de_', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  }
+
   try {
     const playerResponse = await fetch(`https://open.faceit.com/data/v4/players?nickname=${encodeURIComponent(nickname)}`, {
       headers: { 'Authorization': `Bearer ${FACEIT_API_KEY}` }
@@ -136,7 +168,7 @@ export default async function handler(request, response) {
 
           if (todayMatchesDetailed.length > 0) {
             const lastMatch = todayMatchesDetailed[todayMatchesDetailed.length - 1];
-            todayMatches.last_match = `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${lastMatch.map} (${lastMatch.score}), ` +
+            todayMatches.last_match = `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
               `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
               `KDR: ${lastMatch.kd_ratio} HS: ${Math.round((lastMatch.headshots / lastMatch.kills) * 100) || 0}% ` +
               `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
