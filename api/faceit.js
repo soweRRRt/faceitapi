@@ -114,9 +114,10 @@ export default async function handler(request, response) {
 
                     let eloChange = 0;
 
-                    // Проверяем, что у текущего матча и предыдущего есть eloValue
-                    if (index > 0 && match.eloValue && array[index - 1].eloValue) {
-                        eloChange = calculateEloChange(match.eloValue, array[index - 1].eloValue);
+                    // Правильный расчет: для матча с индексом N, изменение = ELO_N - ELO_(N+1)
+                    // где ELO_(N+1) - ELO более старого матча
+                    if (index < array.length - 1 && match.eloValue && array[index + 1].eloValue) {
+                        eloChange = calculateEloChange(match.eloValue, array[index + 1].eloValue);
                     }
 
                     return {
@@ -136,7 +137,7 @@ export default async function handler(request, response) {
                     };
                 });
 
-                // Берем последние 5 матчей (первые в reversed массиве)
+                // Берем последние 5 матчей (первые в массиве)
                 const last5Matches = allMatchesDetailed.slice(0, 5);
                 allMatchesReport = last5Matches.map(match =>
                     `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
