@@ -95,13 +95,15 @@ export default async function handler(request, response) {
             }
 
             let eloChange = 0;
-            if (index === 0) {
-              eloChange = match.eloValue - todayMatches.start_elo;
-            } else {
-              eloChange = match.eloValue - sortedMatches[index - 1].eloValue;
+            if (match.eloValue) {
+              if (index === 0) {
+                eloChange = match.eloValue - todayMatches.start_elo;
+              } else {
+                eloChange = match.eloValue - sortedMatches[index - 1].eloValue;
+              }
             }
 
-            todayMatches.elo += eloChange;
+            // todayMatches.elo += eloChange;
 
             if (match.i10 === '1') {
               todayMatches.elo_win += eloChange;
@@ -111,17 +113,21 @@ export default async function handler(request, response) {
 
             todayMatchesDetailed.push({
               result: match.i10 === '1' ? 'WIN' : 'LOSE',
-              score: `${match.i1 || 0}:${match.i2 || 0}`,
-              map: match.i3 || 'Unknown',
+              score: `${(match.i18 || '0 / 0').split(' / ').map(num => parseInt(num) || 0).join(':')}`,
+              map: match.i1 || 'Unknown',
               elo_change: eloChange,
-              kills: match.i4 || 0,
-              deaths: match.i5 || 0,
-              assists: match.i6 || 0,
-              headshots: match.i7 || 0,
-              kd_ratio: match.i8 || 0,
+              kills: match.i6 || 0,
+              deaths: match.i8 || 0,
+              assists: match.i7 || 0,
+              headshots: match.i13 || 0,
+              kd_ratio: match.с2 || 0,
               mvps: match.i9 || 0
             });
           });
+
+          if (lastMatchBeforeToday.eloValue) {
+            todayMatches.elo = playerData.games?.cs2?.faceit_elo - lastMatchBeforeToday.eloValue;
+          }
 
           todayMatches.report = todayMatchesDetailed.map(match =>
             `${match.result} ${match.score} ${match.map} (${match.elo_change > 0 ? '+' : ''}${match.elo_change})`
