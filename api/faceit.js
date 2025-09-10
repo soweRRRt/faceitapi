@@ -60,6 +60,8 @@ export default async function handler(request, response) {
           return matchDay === todayStr;
         });
 
+        console.log("todayData");
+        console.log(todayData);
         console.log("ALL MATCHES");
         console.log(allMatches);
         console.log("TODAY MATCHES");
