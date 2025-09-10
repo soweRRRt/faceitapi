@@ -72,11 +72,13 @@ export default async function handler(request, response) {
             elo_lose: 0,
             count: 0,
             start_elo: 0,
-            end_elo: playerData.games?.cs2?.faceit_elo || 0
+            end_elo: playerData.games?.cs2?.faceit_elo || 0,
+            report: "",
+            last_match: ""
         };
 
-        let report = "";
-        let last_match = "";
+        let allMatchesReport = "";
+        let allMatchesLastMatch = "";
         let lastMatchBeforeToday = null;
         let todayMatchesDetailed = [];
 
@@ -101,6 +103,49 @@ export default async function handler(request, response) {
                         eloValue: parseInt(match.elo || 0)
                     }))
                     .sort((a, b) => b.date - a.date);
+
+                allMatchesDetailed = allMatches.map((match, index) => {
+                    const isWin = match.i10 === '1';
+                    const hsPercentage = calculateHSPercentage(parseInt(match.i13 || 0), parseInt(match.i6 || 1));
+
+                    let eloChange = 0;
+                    if (index > 0) {
+                        eloChange = calculateEloChange(match.eloValue, allMatches[index - 1].eloValue);
+                    }
+
+                    return {
+                        result: isWin ? 'WIN' : 'LOSE',
+                        score: formatScore(match.i18),
+                        map: match.i1 || 'Unknown',
+                        elo_change: eloChange,
+                        kills: parseInt(match.i6 || 0),
+                        deaths: parseInt(match.i8 || 0),
+                        assists: parseInt(match.i7 || 0),
+                        headshots: parseInt(match.i13 || 0),
+                        hs_percentage: hsPercentage,
+                        kd_ratio: parseFloat(match.c2 || 0),
+                        mvps: parseInt(match.i9 || 0),
+                        date: match.dateObj,
+                        elo: match.eloValue
+                    };
+                });
+
+                const reversedMatches = [...allMatchesDetailed].reverse();
+
+                const last5Matches = reversedMatches.slice(0, 5);
+                allMatchesReport = last5Matches.map(match =>
+                    `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
+                    (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
+                ).join(', ');
+
+                if (reversedMatches.length > 0) {
+                    const lastMatch = reversedMatches[0];
+                    allMatchesLastMatch =
+                        `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
+                        `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
+                        `KDR: ${lastMatch.kd_ratio} HS: ${lastMatch.hs_percentage}% ` +
+                        `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
+                }
 
                 const matchesToday = allMatches.filter(match => {
                     const matchDay = match.dateObj.toLocaleDateString('ru-RU');
@@ -155,7 +200,7 @@ export default async function handler(request, response) {
                         todayMatches.elo = calculateEloChange(todayMatches.end_elo, lastMatchBeforeToday.eloValue);
                     }
 
-                    report = todayMatchesDetailed.reverse().map(match =>
+                    todayMatches.report = todayMatchesDetailed.reverse().map(match =>
                         `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
                         (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
                     ).join(', ');
@@ -164,7 +209,7 @@ export default async function handler(request, response) {
                         const lastMatch = todayMatchesDetailed[0];
                         const hsPercentage = calculateHSPercentage(lastMatch.headshots, lastMatch.kills);
 
-                        last_match =
+                        todayMatches.last_match =
                             `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
                             `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
                             `KDR: ${lastMatch.kd_ratio} HS: ${hsPercentage}% ` +
@@ -266,8 +311,6 @@ export default async function handler(request, response) {
                     wins: last30Stats.wins,
                     losses: last30Stats.losses
                 },
-                report: report,
-                last_match: last_match,
                 today: todayMatches
             },
             player_info: {
@@ -296,6 +339,7 @@ export default async function handler(request, response) {
                 average_mvps: statsData.lifetime['Average MVPs']
             },
             last_matches: lastMatches,
+            all_matches_detailed: allMatchesDetailed,
             all_stats: statsData,
             all_player_data: playerData
         };
