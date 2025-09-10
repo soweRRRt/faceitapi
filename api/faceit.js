@@ -113,9 +113,11 @@ export default async function handler(request, response) {
                     const hsPercentage = calculateHSPercentage(headshots, kills);
 
                     let eloChange = 0;
-                    // Для расчета изменения ELO нужно сравнить с предыдущим (более новым) матчем
-                    if (index > 0) {
-                        eloChange = calculateEloChange(match.eloValue, array[index - 1].eloValue);
+                    // Правильный расчет: ELO после матча минус ELO до матча
+                    // ELO до матча = ELO после предыдущего матча (если он есть)
+                    if (index < array.length - 1) {
+                        const eloBeforeMatch = array[index + 1].eloValue; // Более старый матч имеет более ранний ELO
+                        eloChange = calculateEloChange(match.eloValue, eloBeforeMatch);
                     }
 
                     return {
