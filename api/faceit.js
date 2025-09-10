@@ -105,7 +105,6 @@ export default async function handler(request, response) {
                     }))
                     .sort((a, b) => b.date - a.date);
 
-                // Заменяем блок с allMatchesDetailed:
                 allMatchesDetailed = allMatches.map((match, index, array) => {
                     const isWin = match.i10 === '1';
                     const kills = parseInt(match.i6 || 0);
@@ -114,8 +113,6 @@ export default async function handler(request, response) {
 
                     let eloChange = 0;
 
-                    // Правильный расчет: для матча с индексом N, изменение = ELO_N - ELO_(N+1)
-                    // где ELO_(N+1) - ELO более старого матча
                     if (index < array.length - 1 && match.eloValue && array[index + 1].eloValue) {
                         eloChange = calculateEloChange(match.eloValue, array[index + 1].eloValue);
                     }
@@ -137,65 +134,21 @@ export default async function handler(request, response) {
                     };
                 });
 
-                // Берем последние 5 матчей (первые в массиве)
                 const last5Matches = allMatchesDetailed.slice(0, 5);
                 allMatchesReport = last5Matches.map(match =>
                     `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
                     (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
                 ).join(', ');
 
-                // Последний матч (самый новый)
                 if (allMatchesDetailed.length > 0) {
                     const lastMatch = allMatchesDetailed[0];
                     allMatchesLastMatch =
                         `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
                         `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
                         `KDR: ${lastMatch.kd_ratio} HS: ${lastMatch.hs_percentage}% ` +
-                        `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
+                        `MVP: ${lastMatch.mvps}` +
+                        (lastMatch.elo_change !== 0 ? ` ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}` : '');
                 }
-
-                // allMatchesDetailed = allMatches.map((match, index) => {
-                //     const isWin = match.i10 === '1';
-                //     const hsPercentage = calculateHSPercentage(parseInt(match.i13 || 0), parseInt(match.i6 || 1));
-
-                //     let eloChange = 0;
-                //     if (index > 0) {
-                //         eloChange = calculateEloChange(match.eloValue, allMatches[index - 1].eloValue);
-                //     }
-
-                //     return {
-                //         result: isWin ? 'WIN' : 'LOSE',
-                //         score: formatScore(match.i18),
-                //         map: match.i1 || 'Unknown',
-                //         elo_change: eloChange,
-                //         kills: parseInt(match.i6 || 0),
-                //         deaths: parseInt(match.i8 || 0),
-                //         assists: parseInt(match.i7 || 0),
-                //         headshots: parseInt(match.i13 || 0),
-                //         hs_percentage: hsPercentage,
-                //         kd_ratio: parseFloat(match.c2 || 0),
-                //         mvps: parseInt(match.i9 || 0),
-                //         date: match.dateObj,
-                //         elo: match.eloValue
-                //     };
-                // });
-
-                // const reversedMatches = [...allMatchesDetailed].reverse();
-
-                // const last5Matches = reversedMatches.slice(0, 5);
-                // allMatchesReport = last5Matches.map(match =>
-                //     `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
-                //     (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
-                // ).join(', ');
-
-                // if (reversedMatches.length > 0) {
-                //     const lastMatch = reversedMatches[0];
-                //     allMatchesLastMatch =
-                //         `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
-                //         `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
-                //         `KDR: ${lastMatch.kd_ratio} HS: ${lastMatch.hs_percentage}% ` +
-                //         `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
-                // }
 
                 const matchesToday = allMatches.filter(match => {
                     const matchDay = match.dateObj.toLocaleDateString('ru-RU');
@@ -263,7 +216,8 @@ export default async function handler(request, response) {
                             `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
                             `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
                             `KDR: ${lastMatch.kd_ratio} HS: ${hsPercentage}% ` +
-                            `MVP: ${lastMatch.mvps} ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}`;
+                            `MVP: ${lastMatch.mvps}` +
+                            (lastMatch.elo_change !== 0 ? ` ELO: ${lastMatch.elo_change > 0 ? '+' : ''}${lastMatch.elo_change}` : '');
                     }
 
                     const expectedTotalChange = calculateEloChange(todayMatches.end_elo, todayMatches.start_elo);
