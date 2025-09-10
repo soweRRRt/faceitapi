@@ -350,10 +350,39 @@ export default async function handler(request, response) {
             all_player_data: playerData
         };
 
+        // if (viewTemplate) {
+        //     const findValueInObject = (obj, searchKey) => {
+        //         if (obj.hasOwnProperty(searchKey)) return obj[searchKey];
+
+        //         for (const key in obj) {
+        //             if (typeof obj[key] === 'object' && obj[key] !== null) {
+        //                 const found = findValueInObject(obj[key], searchKey);
+        //                 if (found !== undefined) return found;
+        //             }
+        //         }
+        //         return undefined;
+        //     };
+
+        //     const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
+        //         if (fullMode) {
+        //             return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
+        //         } else {
+        //             if (key.includes('.')) {
+        //                 const parts = key.split('.');
+        //                 return parts.reduce((obj, k) => obj?.[k], result.api) ?? `{${key}}`;
+        //             } else {
+        //                 return findValueInObject(result.api, key) ?? `{${key}}`;
+        //             }
+        //         }
+        //     });
+
+        //     response.status(200).send(textOutput);
+        //     return;
+        // }
+
         if (viewTemplate) {
             const findValueInObject = (obj, searchKey) => {
                 if (obj.hasOwnProperty(searchKey)) return obj[searchKey];
-
                 for (const key in obj) {
                     if (typeof obj[key] === 'object' && obj[key] !== null) {
                         const found = findValueInObject(obj[key], searchKey);
@@ -363,17 +392,31 @@ export default async function handler(request, response) {
                 return undefined;
             };
 
-            const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
-                if (fullMode) {
-                    return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
-                } else {
-                    if (key.includes('.')) {
-                        const parts = key.split('.');
-                        return parts.reduce((obj, k) => obj?.[k], result.api) ?? `{${key}}`;
-                    } else {
-                        return findValueInObject(result.api, key) ?? `{${key}}`;
+            const textOutput = viewTemplate.replace(/\{([^}]+)\}/g, (_, expression) => {
+                if (expression.includes('?')) {
+                    const [condition, truePart, falsePart] = expression.split(/\s*\?\s*|\s*:\s*/);
+                    const conditionParts = condition.split(/\s*<=\s*|\s*>=\s*|\s*==\s*|\s*!=\s*|\s*<\s*|\s*>\s*/);
+
+                    if (conditionParts.length === 3) {
+                        const left = findValueInObject(result, conditionParts[0]);
+                        const operator = condition.match(/(<=|>=|==|!=|<|>)/)[0];
+                        const right = parseInt(conditionParts[2]);
+
+                        let conditionResult = false;
+                        switch (operator) {
+                            case '<=': conditionResult = left <= right; break;
+                            case '>=': conditionResult = left >= right; break;
+                            case '==': conditionResult = left == right; break;
+                            case '!=': conditionResult = left != right; break;
+                            case '<': conditionResult = left < right; break;
+                            case '>': conditionResult = left > right; break;
+                        }
+
+                        return conditionResult ? truePart : falsePart;
                     }
                 }
+
+                return findValueInObject(result, expression) ?? `{${expression}}`;
             });
 
             response.status(200).send(textOutput);
