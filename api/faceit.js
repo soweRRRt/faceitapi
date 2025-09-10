@@ -312,7 +312,9 @@ export default async function handler(request, response) {
                     wins: last30Stats.wins,
                     losses: last30Stats.losses
                 },
-                today: todayMatches
+                today: todayMatches,
+                report: allMatchesReport,
+                last_match: allMatchesLastMatch
             },
             player_info: {
                 avatar: playerData.avatar,
