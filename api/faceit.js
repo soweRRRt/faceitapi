@@ -136,19 +136,16 @@ export default async function handler(request, response) {
                     };
                 });
 
-                // Реверсируем для отображения от новых к старым
-                const reversedMatches = [...allMatchesDetailed].reverse();
-
                 // Берем последние 5 матчей (первые в reversed массиве)
-                const last5Matches = reversedMatches.slice(0, 5);
+                const last5Matches = allMatchesDetailed.slice(0, 5);
                 allMatchesReport = last5Matches.map(match =>
                     `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
                     (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
                 ).join(', ');
 
                 // Последний матч (самый новый)
-                if (reversedMatches.length > 0) {
-                    const lastMatch = reversedMatches[0];
+                if (allMatchesDetailed.length > 0) {
+                    const lastMatch = allMatchesDetailed[0];
                     allMatchesLastMatch =
                         `${lastMatch.result === 'WIN' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
                         `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
