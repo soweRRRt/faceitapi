@@ -270,6 +270,7 @@ export default async function handler(request, response) {
             },
             player_info: {
                 avatar: playerData.avatar,
+                cover: playerData.cover_image,
                 country: playerData.country,
                 steam_id_64: playerData.steam_id_64,
                 memberships: playerData.memberships
