@@ -206,7 +206,7 @@ export default async function handler(request, response) {
 
                     todayMatches.report = todayMatchesDetailed.reverse().map(match =>
                         `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
-                        (match.elo_change !== 0 ? ` (${match.elo_change > 0 ? '+' : ''}${match.elo_change})` : '')
+                        (match.elo_change !== 0 ? ` (${match.elo_change})` : '')
                     ).join(', ');
 
                     if (todayMatchesDetailed.length > 0) {
