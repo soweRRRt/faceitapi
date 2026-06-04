@@ -5,6 +5,14 @@ export default async function handler(request, response) {
     const { nick: nickname, view: viewTemplate } = request.query;
     const fullMode = 'full' in request.query;
     const { FACEIT_API_KEY, DEEP_FACEIT_API_KEY } = process.env;
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const log = (level, event, payload = {}) => {
+        console[level](`[faceit:${requestId}] ${event}`, JSON.stringify({
+            nick: nickname,
+            ...payload
+        }));
+    };
 
     const getBeautifulMapName = (defaultMapName) => {
         return defaultMapName
@@ -39,15 +47,35 @@ export default async function handler(request, response) {
     };
 
     try {
+        log('info', 'request:start', {
+            fullMode,
+            hasView: Boolean(viewTemplate),
+            hasFaceitKey: Boolean(FACEIT_API_KEY),
+            hasDeepKey: Boolean(DEEP_FACEIT_API_KEY)
+        });
+
         const playerResponse = await fetchWithAuth(
             `https://open.faceit.com/data/v4/players?nickname=${encodeURIComponent(nickname)}`
         );
 
-        if (!playerResponse.ok) throw new Error('Ошибка получения player_id');
+        if (!playerResponse.ok) {
+            log('warn', 'player:failed', {
+                status: playerResponse.status,
+                statusText: playerResponse.statusText
+            });
+            throw new Error('Ошибка получения player_id');
+        }
 
         const playerData = await playerResponse.json();
         const playerId = playerData.player_id;
         const region = playerData.games?.cs2?.region || 'EU';
+
+        log('info', 'player:loaded', {
+            playerId,
+            region,
+            elo: playerData.games?.cs2?.faceit_elo || 0,
+            level: playerData.games?.cs2?.skill_level || 0
+        });
 
         let regionRanking = null;
         try {
@@ -58,9 +86,18 @@ export default async function handler(request, response) {
             if (rankingResponse.ok) {
                 const rankingData = await rankingResponse.json();
                 regionRanking = rankingData.position;
+            } else {
+                log('warn', 'ranking:failed', {
+                    status: rankingResponse.status,
+                    statusText: rankingResponse.statusText,
+                    region
+                });
             }
         } catch (e) {
-            console.error('Ошибка получения регионального рейтинга', e);
+            log('error', 'ranking:error', {
+                message: e.message,
+                stack: e.stack
+            });
         }
 
         const todayMatches = {
@@ -87,23 +124,54 @@ export default async function handler(request, response) {
             const now = new Date();
             const todayStr = now.toLocaleDateString('ru-RU');
             const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const deepStatsUrl = `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`;
+
+            log('info', 'deep-stats:request', {
+                todayStr,
+                todayStart: todayStart.toISOString(),
+                hasDeepKey: Boolean(DEEP_FACEIT_API_KEY)
+            });
 
             const todayResponse = await fetchWithAuth(
-                `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`,
+                deepStatsUrl,
                 DEEP_FACEIT_API_KEY
             );
 
             if (todayResponse.ok) {
                 const todayData = await todayResponse.json();
+                const isArray = Array.isArray(todayData);
 
-                const allMatches = todayData
+                log('info', 'deep-stats:loaded', {
+                    isArray,
+                    count: isArray ? todayData.length : null,
+                    type: typeof todayData,
+                    firstItemKeys: isArray && todayData[0] ? Object.keys(todayData[0]).slice(0, 20) : []
+                });
+
+                if (!isArray) {
+                    log('warn', 'deep-stats:not-array', {
+                        preview: JSON.stringify(todayData).slice(0, 500)
+                    });
+                }
+
+                const allMatches = (isArray ? todayData : [])
                     .filter(match => match.date)
                     .map(match => ({
                         ...match,
                         dateObj: new Date(match.date),
                         eloValue: parseInt(match.elo || 0)
                     }))
-                    .sort((a, b) => b.date - a.date);
+                    .filter(match => !Number.isNaN(match.dateObj.getTime()))
+                    .sort((a, b) => b.dateObj - a.dateObj);
+
+                log('info', 'deep-stats:matches-normalized', {
+                    allMatchesCount: allMatches.length,
+                    matchesWithElo: allMatches.filter(match => match.eloValue).length,
+                    newestDate: allMatches[0]?.dateObj?.toISOString() || null,
+                    oldestDate: allMatches[allMatches.length - 1]?.dateObj?.toISOString() || null,
+                    newestMap: allMatches[0]?.i1 || null,
+                    newestResult: allMatches[0]?.i10 || null
+                });
 
                 allMatchesDetailed = allMatches.map((match, index, array) => {
                     const isWin = match.i10 === '1';
@@ -163,11 +231,21 @@ export default async function handler(request, response) {
                 todayMatches.start_elo = lastMatchBeforeToday?.eloValue ||
                     (matchesToday.length > 0 ? matchesToday[matchesToday.length - 1].eloValue : todayMatches.end_elo);
 
+                log('info', 'today:calculated-inputs', {
+                    matchesTodayCount: matchesToday.length,
+                    lastMatchBeforeTodayDate: lastMatchBeforeToday?.dateObj?.toISOString() || null,
+                    lastMatchBeforeTodayElo: lastMatchBeforeToday?.eloValue || null,
+                    startElo: todayMatches.start_elo,
+                    endElo: todayMatches.end_elo,
+                    reportReady: Boolean(allMatchesReport),
+                    lastMatchReady: Boolean(allMatchesLastMatch)
+                });
+
                 if (matchesToday.length > 0) {
                     todayMatches.present = true;
                     todayMatches.count = matchesToday.length;
 
-                    const sortedMatches = matchesToday.sort((a, b) => a.date - b.date);
+                    const sortedMatches = matchesToday.sort((a, b) => a.dateObj - b.dateObj);
 
                     sortedMatches.forEach((match, index) => {
                         const isWin = match.i10 === '1';
@@ -223,7 +301,7 @@ export default async function handler(request, response) {
 
                     const expectedTotalChange = calculateEloChange(todayMatches.end_elo, todayMatches.start_elo);
                     if (Math.abs(parseInt(todayMatches.elo) - expectedTotalChange) > 2) {
-                        console.warn('Расхождение в расчетах ELO:', {
+                        log('warn', 'today:elo-mismatch', {
                             calculated: parseInt(todayMatches.elo),
                             expected: expectedTotalChange,
                             start: todayMatches.start_elo,
@@ -232,16 +310,33 @@ export default async function handler(request, response) {
                         todayMatches.elo = expectedTotalChange > 0 ? `+${expectedTotalChange}` : expectedTotalChange.toString();
                     }
                 }
+            } else {
+                const bodyPreview = await todayResponse.text().catch(() => '');
+                log('warn', 'deep-stats:failed', {
+                    status: todayResponse.status,
+                    statusText: todayResponse.statusText,
+                    contentType: todayResponse.headers.get('content-type'),
+                    bodyPreview: bodyPreview.slice(0, 500)
+                });
             }
         } catch (e) {
-            console.error('Ошибка получения сегодняшних матчей', e);
+            log('error', 'deep-stats:error', {
+                message: e.message,
+                stack: e.stack
+            });
         }
 
         const statsResponse = await fetchWithAuth(
             `https://open.faceit.com/data/v4/players/${playerId}/stats/cs2`
         );
 
-        if (!statsResponse.ok) throw new Error('Ошибка получения статистики');
+        if (!statsResponse.ok) {
+            log('warn', 'lifetime-stats:failed', {
+                status: statsResponse.status,
+                statusText: statsResponse.statusText
+            });
+            throw new Error('Ошибка получения статистики');
+        }
         const statsData = await statsResponse.json();
 
         const matchesResponse = await fetchWithAuth(
@@ -295,7 +390,21 @@ export default async function handler(request, response) {
             last30Stats.avg_adr = (totals.adr / last30Stats.matches_count).toFixed(2);
             last30Stats.avg_hs = (totals.hsPercent / last30Stats.matches_count).toFixed(0);
             last30Stats.winrate_30 = ((totals.wins / last30Stats.matches_count) * 100).toFixed(0);
+        } else {
+            log('warn', 'last-matches:failed', {
+                status: matchesResponse.status,
+                statusText: matchesResponse.statusText
+            });
         }
+
+        log('info', 'request:result-summary', {
+            reportReady: Boolean(allMatchesReport),
+            lastMatchReady: Boolean(allMatchesLastMatch),
+            allMatchesDetailedCount: allMatchesDetailed.length,
+            todayPresent: todayMatches.present,
+            todayCount: todayMatches.count,
+            lastMatchesCount: lastMatches.length
+        });
 
         const result = {
             nickname,
@@ -389,6 +498,11 @@ export default async function handler(request, response) {
         }
 
     } catch (error) {
+        log('error', 'request:error', {
+            message: error.message,
+            stack: error.stack
+        });
+
         response.status(500).json({
             error: 'Не удалось получить данные',
             message: error.message,
