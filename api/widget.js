@@ -67,6 +67,14 @@ const statCellRaw = (label, value, className = '') => `
 `;
 
 const wlValue = (wins, losses) => `<span class="win-text">${escapeHtml(wins)}W</span>/<span class="loss-text">${escapeHtml(losses)}L</span>`;
+const formValue = (form) => String(form || '')
+    .split('')
+    .map(letter => {
+        if (letter === 'W') return '<span class="win-text">W</span>';
+        if (letter === 'L') return '<span class="loss-text">L</span>';
+        return escapeHtml(letter);
+    })
+    .join('');
 const ALLOWED_TYPES = ['summary', 'last', 'maps', 'form', 'rank', 'premades'];
 
 const FACEIT_LEVEL_ICONS = {
@@ -126,19 +134,18 @@ const getRows = (type, api, data = {}) => {
 
     if (type === 'maps') {
         return [
-            statCell('PICK', mapPick ? `${mapPick.name} ${mapPick.winrate}` : 'No map data', 'accent'),
+            statCell('PLAY', mapPick ? `${mapPick.name} ${mapPick.winrate}` : 'No map data', 'accent'),
             statCell('BEST', maps.best ? `${maps.best.name}: ${maps.best.winrate}, ${maps.best.kd} KD` : 'N/A', 'win'),
             statCell('AVOID', maps.worst ? `${maps.worst.name}: ${maps.worst.winrate}, ${maps.worst.kd} KD` : 'N/A', 'loss')
         ].join('');
     }
 
     if (type === 'form') {
-        const tilt = api.tilt_meter || {};
         return [
-            statCell('FORM', shortText(form.last5 || api.trend), 'accent'),
+            statCellRaw('FORM', formValue(form.last5 || api.trend || 'N/A'), 'accent'),
             statCell('STREAK', shortText(form.current_streak, 'N/A')),
-            statCell('10 WR', shortText(form.last10_winrate, '0%')),
-            statCell('TILT', `${String(tilt.status || 'N/A').toUpperCase()} ${tilt.score ?? 0}/100`)
+            statCell('5 WR', shortText(form.last5_winrate, '0%')),
+            statCell('10 WR', shortText(form.last10_winrate, '0%'))
         ].join('');
     }
 
@@ -159,13 +166,12 @@ const getRows = (type, api, data = {}) => {
     if (type === 'premades') {
         const premades = api.premades || {};
         const best = premades.best_overall || premades.best;
-        const solo = premades.solo;
+        const modeLabel = best?.label === 'SOLO' ? 'SOLO' : best?.label;
 
         return [
-            statCell('BEST', best ? `${best.label} ${best.matches}M` : 'No data', 'accent'),
-            statCellRaw('BEST WR', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)}` : 'N/A'),
-            statCell('BEST AVG', best ? `${best.avg_kills} AVG / ${best.avg_kd} KD` : 'N/A'),
-            statCell('SOLO', solo ? `${solo.matches}M ${solo.winrate} / ${solo.avg_kd} KD` : '0M')
+            statCell('BEST MODE', best ? `${modeLabel}` : 'No data', 'accent'),
+            statCellRaw('MATCHES', best ? `${escapeHtml(best.matches)}M ${wlValue(best.wins, best.losses)}` : 'N/A'),
+            statCell('WR / KD', best ? `${best.winrate} / ${best.avg_kd} KD` : 'N/A')
         ].join('');
     }
 
@@ -330,7 +336,8 @@ const renderWidget = ({ data, type, types, theme, refresh, rotate }) => {
     .grid.active { display: grid; }
     .grid.type-last,
     .grid.type-maps,
-    .grid.type-rank {
+    .grid.type-rank,
+    .grid.type-premades {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .cell {
