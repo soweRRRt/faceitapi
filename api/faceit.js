@@ -718,6 +718,7 @@ export default async function handler(request, response) {
                 avg_adr: avgAdr.toFixed(2),
                 elo_change: entry.elo_change,
                 elo_matches: entry.elo_matches,
+                elo_missing_matches: entry.matches - entry.elo_matches,
                 elo_per_match: Number(eloPerMatch.toFixed(2)),
                 elo_text: entry.elo_change > 0 ? `+${entry.elo_change}` : entry.elo_change.toString(),
                 score: Number(score.toFixed(2))
@@ -958,7 +959,7 @@ export default async function handler(request, response) {
             const now = new Date();
             const todayStr = now.toLocaleDateString('ru-RU');
             const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const deepStatsUrl = `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=30&game_mode=5v5`;
+            const deepStatsUrl = `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=50&game_mode=5v5`;
 
             log('info', 'deep-stats:request', {
                 todayStr,
@@ -1442,6 +1443,19 @@ export default async function handler(request, response) {
                 eloChangesBySignature
             })
             : null;
+        if (premades) {
+            log('info', 'premades:calculated', {
+                mode: premades.mode,
+                sampleMatches: premades.sample_matches,
+                bestOverall: premades.best_overall?.label || null,
+                bestOverallElo: premades.best_overall?.elo_text || null,
+                bestOverallEloMatches: premades.best_overall?.elo_matches || 0,
+                bestOverallEloMissingMatches: premades.best_overall?.elo_missing_matches || 0,
+                soloElo: premades.solo?.elo_text || null,
+                soloEloMatches: premades.solo?.elo_matches || 0,
+                soloEloMissingMatches: premades.solo?.elo_missing_matches || 0
+            });
+        }
         const commandBaseUrl = `${request.headers['x-forwarded-proto'] || 'https'}://${request.headers.host || 'faceitapi.vercel.app'}/api/faceit`;
         const widgetBaseUrl = commandBaseUrl.replace('/api/faceit', '/api/widget');
         const makeStreamElementsCommand = (preset) =>
