@@ -515,11 +515,28 @@ export default async function handler(request, response) {
         return null;
     };
 
+    const getPremadeEloChange = (match, eloChangesByMatchId, eloChangesBySignature) => {
+        if (eloChangesByMatchId.has(match.match_id)) {
+            return eloChangesByMatchId.get(match.match_id);
+        }
+
+        const date = parseFaceitDate(match.date);
+        const signature = date
+            ? `${date.getTime()}|${match.map}|${match.score}`
+            : null;
+
+        return signature && eloChangesBySignature.has(signature)
+            ? eloChangesBySignature.get(signature)
+            : null;
+    };
+
     const calculatePremades = async (matches, playerId, options = {}) => {
         const candidates = matches
             .filter(match => match.match_id)
             .slice(0, 50);
         const minimumSharedMatches = Math.max(2, parseInt(options.minSharedMatches || 3) || 3);
+        const eloChangesByMatchId = options.eloChangesByMatchId || new Map();
+        const eloChangesBySignature = options.eloChangesBySignature || new Map();
 
         const premadeMap = new Map();
         const solo = {
@@ -532,6 +549,8 @@ export default async function handler(request, response) {
             kills: 0,
             kd: 0,
             adr: 0,
+            elo_change: 0,
+            elo_matches: 0,
             mateKills: 0,
             mateKd: 0,
             mateAdr: 0
@@ -614,6 +633,11 @@ export default async function handler(request, response) {
                 entry.kills += parseInt(match.kills || 0);
                 entry.kd += parseFloat(match.kd_ratio || 0);
                 entry.adr += parseFloat(match.adr || 0);
+                const eloChange = getPremadeEloChange(match, eloChangesByMatchId, eloChangesBySignature);
+                if (eloChange !== null) {
+                    entry.elo_change += eloChange;
+                    entry.elo_matches++;
+                }
             };
 
             if (!premadeTeammates.length) {
@@ -634,7 +658,9 @@ export default async function handler(request, response) {
                         losses: 0,
                         kills: 0,
                         kd: 0,
-                        adr: 0
+                        adr: 0,
+                        elo_change: 0,
+                        elo_matches: 0
                     });
                 }
 
@@ -667,6 +693,9 @@ export default async function handler(request, response) {
                 avg_kills: avgKills.toFixed(0),
                 avg_kd: avgKd.toFixed(2),
                 avg_adr: avgAdr.toFixed(2),
+                elo_change: entry.elo_change,
+                elo_matches: entry.elo_matches,
+                elo_text: entry.elo_change > 0 ? `+${entry.elo_change}` : entry.elo_change.toString(),
                 score: Number(score.toFixed(2))
             };
         };
@@ -972,6 +1001,7 @@ export default async function handler(request, response) {
                     }
 
                     return {
+                        match_id: match.match_id || match.matchId || match.id || match.i64 || match.i65 || null,
                         result: isWin ? 'WIN' : 'LOSE',
                         score: formatScore(match.i18),
                         map: match.i1 || 'Unknown',
@@ -984,6 +1014,7 @@ export default async function handler(request, response) {
                         kd_ratio: parseFloat(match.c2 || 0),
                         mvps: parseInt(match.i9 || 0),
                         date: match.dateObj,
+                        signature: `${match.dateObj.getTime()}|${match.i1 || 'Unknown'}|${formatScore(match.i18)}`,
                         elo: match.eloValue
                     };
                 });
@@ -1312,9 +1343,21 @@ export default async function handler(request, response) {
             : null;
         const peakToday = getPeakToday(allMatchesDetailed, currentElo, todayStrForSession);
         const tiltMeter = getTiltMeter(lastMatches, allMatchesDetailed);
+        const eloChangesByMatchId = new Map(
+            allMatchesDetailed
+                .filter(match => match.match_id)
+                .map(match => [match.match_id, parseInt(match.elo_change || 0) || 0])
+        );
+        const eloChangesBySignature = new Map(
+            allMatchesDetailed
+                .filter(match => match.signature)
+                .map(match => [match.signature, parseInt(match.elo_change || 0) || 0])
+        );
         const premades = premadesMode
             ? await calculatePremades(lastMatches, playerId, {
-                minSharedMatches: request.query.premades_min
+                minSharedMatches: request.query.premades_min,
+                eloChangesByMatchId,
+                eloChangesBySignature
             })
             : null;
         const commandBaseUrl = `${request.headers['x-forwarded-proto'] || 'https'}://${request.headers.host || 'faceitapi.vercel.app'}/api/faceit`;

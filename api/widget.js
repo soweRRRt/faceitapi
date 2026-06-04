@@ -170,8 +170,8 @@ const getRows = (type, api, data = {}) => {
 
         return [
             statCell('BEST MODE', best ? `${modeLabel}` : 'No data', 'accent'),
-            statCellRaw('MATCHES', best ? `${escapeHtml(best.matches)}M ${wlValue(best.wins, best.losses)}` : 'N/A'),
-            statCell('WR / KD', best ? `${best.winrate} / ${best.avg_kd} KD` : 'N/A')
+            statCellRaw('RECORD', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)}` : 'N/A'),
+            statCell('ELO DIFF', best ? best.elo_text || '0' : 'N/A', best ? signedClass(best.elo_text || best.elo_change || 0) : '')
         ].join('');
     }
 
