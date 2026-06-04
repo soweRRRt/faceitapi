@@ -51,6 +51,25 @@ export default async function handler(request, response) {
             .join(':');
     };
 
+    const formatHistoryScore = (score) => {
+        if (!score) return '0:0';
+
+        if (typeof score === 'string') {
+            return score.includes(' / ') ? formatScore(score) : score;
+        }
+
+        if (Array.isArray(score)) {
+            return score.map(value => parseInt(value) || 0).join(':');
+        }
+
+        if (typeof score === 'object') {
+            const values = Object.values(score).map(value => parseInt(value) || 0);
+            return values.length ? values.join(':') : '0:0';
+        }
+
+        return '0:0';
+    };
+
     const parseFaceitDate = (dateValue) => {
         if (!dateValue) return null;
 
@@ -1160,9 +1179,13 @@ export default async function handler(request, response) {
         const matchesResponse = await fetchWithAuth(
             `https://open.faceit.com/data/v4/players/${playerId}/games/cs2/stats?offset=0&limit=50`
         );
+        const historyResponse = await fetchWithAuth(
+            `https://open.faceit.com/data/v4/players/${playerId}/history?game=cs2&offset=0&limit=50`
+        );
 
         const last30Stats = { wins: 0, losses: 0, matches_count: 0 };
         let lastMatches = [];
+        let premadeMatches = [];
         let last5MatchesTrend = '';
 
         if (matchesResponse.ok) {
@@ -1173,7 +1196,7 @@ export default async function handler(request, response) {
                 firstStatsKeys: matchesData.items?.[0]?.stats ? Object.keys(matchesData.items[0].stats).slice(0, 40) : []
             });
 
-            lastMatches = matchesData.items.slice(0, 30).map(match => ({
+            lastMatches = matchesData.items.slice(0, 50).map(match => ({
                 match_id: match.match_id || match.stats['Match Id'],
                 date: match.date || match.started_at || match.finished_at || match.stats['Match Finished At'] || match.stats['Created At'],
                 result: match.stats.Result,
@@ -1190,6 +1213,7 @@ export default async function handler(request, response) {
                 adr: parseFloat(match.stats.ADR) || 0,
                 rounds: parseInt(match.stats.Rounds) || 0
             }));
+            premadeMatches = lastMatches;
 
             const last5 = lastMatches.slice(0, 5);
             last5MatchesTrend = last5.map(m => m.result === '1' ? 'W' : 'L').reverse().join('');
@@ -1278,6 +1302,53 @@ export default async function handler(request, response) {
             });
         }
 
+        if (historyResponse.ok) {
+            const historyData = await historyResponse.json();
+            const statsByMatchId = new Map(lastMatches.map(match => [match.match_id, match]));
+            const historyItems = historyData.items || [];
+
+            log('info', 'history:loaded', {
+                count: historyItems.length,
+                firstKeys: historyItems[0] ? Object.keys(historyItems[0]).slice(0, 30) : []
+            });
+
+            premadeMatches = historyItems.slice(0, 50)
+                .map(match => {
+                    const matchId = match.match_id || match.matchId || match.id;
+                    const statsMatch = statsByMatchId.get(matchId) || {};
+                    const playerFaction = Object.entries(match.teams || {}).find(([, team]) =>
+                        (team.players || []).some(player => player.player_id === playerId || player.player_id === playerData.player_id)
+                    );
+                    const factionKey = playerFaction?.[0];
+                    const winner = match.results?.winner;
+                    const result = statsMatch.result || (winner && factionKey ? (winner === factionKey ? '1' : '0') : '0');
+
+                    return {
+                        match_id: matchId,
+                        date: statsMatch.date || match.finished_at || match.started_at || match.date,
+                        result,
+                        score: statsMatch.score || formatHistoryScore(match.results?.score || match.results?.final_score),
+                        map: statsMatch.map || match.voting?.map?.pick?.[0] || match.voting?.map?.entities?.[0]?.game_map_id || 'Unknown',
+                        kills: statsMatch.kills || 0,
+                        deaths: statsMatch.deaths || 0,
+                        assists: statsMatch.assists || 0,
+                        kd_ratio: statsMatch.kd_ratio || 0,
+                        hs_percent: statsMatch.hs_percent || 0,
+                        rating: statsMatch.rating || 0,
+                        mvps: statsMatch.mvps || 0,
+                        headshots: statsMatch.headshots || 0,
+                        adr: statsMatch.adr || 0,
+                        rounds: statsMatch.rounds || 0
+                    };
+                })
+                .filter(match => match.match_id);
+        } else {
+            log('warn', 'history:failed', {
+                status: historyResponse.status,
+                statusText: historyResponse.statusText
+            });
+        }
+
         log('info', 'request:result-summary', {
             reportReady: Boolean(allMatchesReport),
             lastMatchReady: Boolean(allMatchesLastMatch),
@@ -1358,7 +1429,7 @@ export default async function handler(request, response) {
                 .map(match => [match.signature, parseInt(match.elo_change || 0) || 0])
         );
         const premades = premadesMode
-            ? await calculatePremades(lastMatches, playerId, {
+            ? await calculatePremades(premadeMatches.length ? premadeMatches : lastMatches, playerId, {
                 minSharedMatches: request.query.premades_min,
                 eloChangesByMatchId,
                 eloChangesBySignature
