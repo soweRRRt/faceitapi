@@ -6,6 +6,8 @@ export default async function handler(request, response) {
     const fullMode = 'full' in request.query;
     const compactMode = 'compact' in request.query;
     const premadesMode = 'premades' in request.query || presetName === 'premades';
+    const addEloValue = parseInt(request.query.addelo, 10);
+    const addElo = Number.isFinite(addEloValue) ? addEloValue : null;
     const { FACEIT_API_KEY, DEEP_FACEIT_API_KEY } = process.env;
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -96,6 +98,22 @@ export default async function handler(request, response) {
         8: 1531,
         9: 1751,
         10: 2001
+    };
+
+    const getLevelFromElo = (elo) => {
+        const currentElo = parseInt(elo || 0);
+
+        if (currentElo >= levelThresholds[10]) return 10;
+        if (currentElo >= levelThresholds[9]) return 9;
+        if (currentElo >= levelThresholds[8]) return 8;
+        if (currentElo >= levelThresholds[7]) return 7;
+        if (currentElo >= levelThresholds[6]) return 6;
+        if (currentElo >= levelThresholds[5]) return 5;
+        if (currentElo >= levelThresholds[4]) return 4;
+        if (currentElo >= levelThresholds[3]) return 3;
+        if (currentElo >= levelThresholds[2]) return 2;
+        if (currentElo >= levelThresholds[1]) return 1;
+        return currentElo > 0 ? 1 : 0;
     };
 
     const getNextLevelProgress = (elo, level, rankingTarget = null) => {
@@ -1390,8 +1408,10 @@ export default async function handler(request, response) {
             lastMatchesCount: lastMatches.length
         });
 
-        const currentLevel = playerData.games?.cs2?.skill_level || 0;
-        const currentElo = playerData.games?.cs2?.faceit_elo || 0;
+        const realCurrentLevel = playerData.games?.cs2?.skill_level || 0;
+        const realCurrentElo = playerData.games?.cs2?.faceit_elo || 0;
+        const currentElo = addElo !== null ? Math.max(0, realCurrentElo + addElo) : realCurrentElo;
+        const currentLevel = addElo !== null ? getLevelFromElo(currentElo) : realCurrentLevel;
         const last5Matches = lastMatches.slice(0, 5);
         const last10Matches = lastMatches.slice(0, 10);
         const todayStrForSession = new Date().toLocaleDateString('ru-RU');
@@ -1419,7 +1439,7 @@ export default async function handler(request, response) {
             last5_elo: last5EloChange > 0 ? `+${last5EloChange}` : last5EloChange.toString(),
             current_streak: getCurrentStreak(lastMatches)
         };
-        const nextLevel = getNextLevelProgress(currentElo, currentLevel, nextRankingTarget);
+        const nextLevel = getNextLevelProgress(currentElo, currentLevel, addElo !== null ? null : nextRankingTarget);
         const maps = getMapSummaries(statsData.segments);
         const mapRecommendation = {
             pick: maps.recommended[0] || null,
@@ -1557,6 +1577,10 @@ export default async function handler(request, response) {
             api: {
                 lvl: currentLevel,
                 elo: currentElo,
+                addelo: addElo,
+                addelo_enabled: addElo !== null,
+                real_lvl: realCurrentLevel,
+                real_elo: realCurrentElo,
                 top: regionRanking,
                 trend: last5MatchesTrend,
                 last_30_stats: {
@@ -1594,8 +1618,10 @@ export default async function handler(request, response) {
                 memberships: playerData.memberships
             },
             faceit_stats: {
-                skill_level: playerData.games?.cs2?.skill_level || 0,
-                faceit_elo: playerData.games?.cs2?.faceit_elo || 0,
+                skill_level: currentLevel,
+                faceit_elo: currentElo,
+                real_skill_level: realCurrentLevel,
+                real_faceit_elo: realCurrentElo,
                 region: playerData.games?.cs2?.region,
                 game_player_id: playerData.games?.cs2?.game_player_id,
                 region_ranking: regionRanking
