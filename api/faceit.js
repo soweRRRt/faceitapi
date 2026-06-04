@@ -2,7 +2,7 @@ export default async function handler(request, response) {
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Methods', 'GET');
 
-    const { nick: nickname, view: viewTemplate } = request.query;
+    const { nick: nickname, view: viewTemplate, preset: presetName } = request.query;
     const fullMode = 'full' in request.query;
     const { FACEIT_API_KEY, DEEP_FACEIT_API_KEY } = process.env;
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -58,6 +58,140 @@ export default async function handler(request, response) {
 
         const parsed = new Date(dateValue);
         return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const formatPercent = (value) => {
+        return `${Math.round(value || 0)}%`;
+    };
+
+    const levelThresholds = {
+        1: 100,
+        2: 501,
+        3: 751,
+        4: 901,
+        5: 1051,
+        6: 1201,
+        7: 1351,
+        8: 1531,
+        9: 1751,
+        10: 2001
+    };
+
+    const getNextLevelProgress = (elo, level) => {
+        const currentLevel = parseInt(level || 0);
+        const currentElo = parseInt(elo || 0);
+
+        if (currentLevel >= 10) {
+            return {
+                current_level: currentLevel,
+                next_level: null,
+                elo_needed: 0,
+                next_level_elo: null,
+                progress: "100%"
+            };
+        }
+
+        const nextLevel = currentLevel + 1;
+        const currentLevelElo = levelThresholds[currentLevel] || 0;
+        const nextLevelElo = levelThresholds[nextLevel] || 0;
+        const levelRange = Math.max(nextLevelElo - currentLevelElo, 1);
+        const progress = Math.max(0, Math.min(100, ((currentElo - currentLevelElo) / levelRange) * 100));
+
+        return {
+            current_level: currentLevel,
+            next_level: nextLevel,
+            elo_needed: Math.max(nextLevelElo - currentElo, 0),
+            next_level_elo: nextLevelElo,
+            progress: `${Math.round(progress)}%`
+        };
+    };
+
+    const calculateMatchAverages = (matches) => {
+        if (!matches.length) {
+            return {
+                matches: 0,
+                winrate: "0%",
+                avg_kills: 0,
+                avg_kd: 0,
+                avg_kr: 0,
+                avg_adr: 0,
+                avg_hs: "0%",
+                wins: 0,
+                losses: 0
+            };
+        }
+
+        const totals = matches.reduce((acc, match) => ({
+            kills: acc.kills + (parseInt(match.kills) || 0),
+            kdRatio: acc.kdRatio + (parseFloat(match.kd_ratio) || 0),
+            adr: acc.adr + (parseFloat(match.adr) || 0),
+            hsPercent: acc.hsPercent + (parseFloat(match.hs_percent ?? match.hs_percentage) || 0),
+            rounds: acc.rounds + (parseInt(match.rounds) || 0),
+            wins: acc.wins + (match.result === '1' || match.result === 'WIN' ? 1 : 0),
+            losses: acc.losses + (match.result === '0' || match.result === 'LOSE' ? 1 : 0)
+        }), { kills: 0, kdRatio: 0, adr: 0, hsPercent: 0, rounds: 0, wins: 0, losses: 0 });
+
+        return {
+            matches: matches.length,
+            winrate: formatPercent((totals.wins / matches.length) * 100),
+            avg_kills: (totals.kills / matches.length).toFixed(0),
+            avg_kd: (totals.kdRatio / matches.length).toFixed(2),
+            avg_kr: totals.rounds ? (totals.kills / totals.rounds).toFixed(2) : "0.00",
+            avg_adr: (totals.adr / matches.length).toFixed(2),
+            avg_hs: formatPercent(totals.hsPercent / matches.length),
+            wins: totals.wins,
+            losses: totals.losses
+        };
+    };
+
+    const getCurrentStreak = (matches) => {
+        if (!matches.length) return "";
+
+        const firstResult = matches[0].result;
+        const normalized = firstResult === '1' || firstResult === 'WIN' ? 'W' : 'L';
+        let count = 0;
+
+        for (const match of matches) {
+            const result = match.result === '1' || match.result === 'WIN' ? 'W' : 'L';
+            if (result !== normalized) break;
+            count++;
+        }
+
+        return `${normalized}${count}`;
+    };
+
+    const getMapSummaries = (segments = []) => {
+        const maps = segments
+            .filter(segment => segment.type === 'Map' && segment.stats)
+            .map(segment => {
+                const matches = parseInt(segment.stats.Matches || segment.stats['Total Matches'] || 0);
+                const wins = parseInt(segment.stats.Wins || 0);
+                const winrate = parseFloat(segment.stats['Win Rate %'] || 0);
+
+                return {
+                    name: segment.label,
+                    matches,
+                    wins,
+                    winrate: `${Math.round(winrate)}%`,
+                    kd: parseFloat(segment.stats['Average K/D Ratio'] || segment.stats['K/D Ratio'] || 0).toFixed(2),
+                    adr: parseFloat(segment.stats.ADR || 0).toFixed(2),
+                    avg_kills: parseFloat(segment.stats['Average Kills'] || 0).toFixed(0)
+                };
+            })
+            .filter(map => map.matches > 0);
+
+        const sortedByBest = [...maps].sort((a, b) =>
+            parseInt(b.winrate) - parseInt(a.winrate) || b.matches - a.matches || parseFloat(b.kd) - parseFloat(a.kd)
+        );
+        const sortedByWorst = [...maps].sort((a, b) =>
+            parseInt(a.winrate) - parseInt(b.winrate) || b.matches - a.matches || parseFloat(a.kd) - parseFloat(b.kd)
+        );
+
+        return {
+            best: sortedByBest[0] || null,
+            worst: sortedByWorst[0] || null,
+            all: maps
+        };
     };
 
     try {
@@ -489,12 +623,65 @@ export default async function handler(request, response) {
             lastMatchesCount: lastMatches.length
         });
 
+        const currentLevel = playerData.games?.cs2?.skill_level || 0;
+        const currentElo = playerData.games?.cs2?.faceit_elo || 0;
+        const last5Matches = lastMatches.slice(0, 5);
+        const last10Matches = lastMatches.slice(0, 10);
+        const sessionSourceMatches = todayMatchesDetailed.length
+            ? todayMatchesDetailed.map(match => ({
+                ...match,
+                result: match.result,
+                hs_percent: calculateHSPercentage(match.headshots, match.kills)
+            }))
+            : lastMatches.filter(match => {
+                const matchDate = parseFaceitDate(match.date);
+                return matchDate && matchDate.toLocaleDateString('ru-RU') === new Date().toLocaleDateString('ru-RU');
+            });
+        const sessionStats = calculateMatchAverages(sessionSourceMatches);
+        const last5Stats = calculateMatchAverages(last5Matches);
+        const last10Stats = calculateMatchAverages(last10Matches);
+        const form = {
+            last5: last5MatchesTrend,
+            last5_winrate: last5Stats.winrate,
+            last10_winrate: last10Stats.winrate,
+            current_streak: getCurrentStreak(lastMatches)
+        };
+        const nextLevel = getNextLevelProgress(currentElo, currentLevel);
+        const maps = getMapSummaries(statsData.segments);
+        const bestMapText = maps.best
+            ? `${maps.best.name}: ${maps.best.winrate} WR, ${maps.best.kd} KD, ${maps.best.adr} ADR`
+            : "No map data";
+        const worstMapText = maps.worst
+            ? `${maps.worst.name}: ${maps.worst.winrate} WR, ${maps.worst.kd} KD, ${maps.worst.adr} ADR`
+            : "No map data";
+        const todayShort = `${todayMatches.win}W/${todayMatches.lose}L ${todayMatches.elo}`;
+        const nextLevelText = nextLevel.next_level
+            ? `LVL ${nextLevel.current_level}->${nextLevel.next_level}: ${nextLevel.elo_needed} ELO left`
+            : `LVL ${nextLevel.current_level}: max level`;
+        const presets = {
+            elo: `LVL: ${currentLevel}, ELO: ${currentElo} (#${regionRanking || 'N/A'}), TREND: ${last5MatchesTrend}, TODAY: ${todayMatches.elo}`,
+            checkelo: `LVL: ${currentLevel}, ELO: ${currentElo} (#${regionRanking || 'N/A'}), TREND: ${last5MatchesTrend}, TODAY: ${todayMatches.elo}`,
+            today: `TODAY: ${todayMatches.count} MATCHES, ${todayMatches.win} W, ${todayMatches.lose} L, ${todayMatches.elo} ELO`,
+            session: `SESSION: ${sessionStats.matches} MATCHES, ${sessionStats.wins} W, ${sessionStats.losses} L, ${sessionStats.winrate} WR, ${sessionStats.avg_kd} KD, ${sessionStats.avg_adr} ADR, ${todayMatches.elo} ELO`,
+            last: allMatchesLastMatch || "No last match data",
+            report: allMatchesReport || "No report data",
+            stats: `LAST ${last30Stats.matches_count} MATCHES STATS: ${last30Stats.wins} W, ${last30Stats.losses} L, ${last30Stats.winrate_30 || 0}% WR, ${last30Stats.avg_kills || 0} AVG, ${last30Stats.avg_kd || 0} KD, ${last30Stats.avg_kr || 0} KR, ${last30Stats.avg_adr || 0} ADR, ${last30Stats.avg_hs || 0}% HS`,
+            form: `FORM: ${form.last5 || 'N/A'}, STREAK: ${form.current_streak || 'N/A'}, LAST 5 WR: ${form.last5_winrate}, LAST 10 WR: ${form.last10_winrate}`,
+            next_level: nextLevelText,
+            maps: `BEST MAP: ${bestMapText} | WORST MAP: ${worstMapText}`,
+            best_map: bestMapText,
+            worst_map: worstMapText,
+            avatar: playerData.avatar || "",
+            cover: playerData.cover_image || "",
+            fullbar: `LVL ${currentLevel} | ${currentElo} ELO | ${todayShort} | ${form.last5 || 'N/A'} | ${allMatchesLastMatch || 'No last match data'}`
+        };
+
         const result = {
             nickname,
             player_id: playerId,
             api: {
-                lvl: playerData.games?.cs2?.skill_level || 0,
-                elo: playerData.games?.cs2?.faceit_elo || 0,
+                lvl: currentLevel,
+                elo: currentElo,
                 top: regionRanking,
                 trend: last5MatchesTrend,
                 last_30_stats: {
@@ -509,6 +696,11 @@ export default async function handler(request, response) {
                     losses: last30Stats.losses
                 },
                 today: todayMatches,
+                session_stats: sessionStats,
+                form,
+                next_level: nextLevel,
+                maps,
+                presets,
                 report: allMatchesReport,
                 last_match: allMatchesLastMatch
             },
@@ -542,6 +734,24 @@ export default async function handler(request, response) {
             all_stats: statsData,
             all_player_data: playerData
         };
+
+        const findValueInObject = (obj, searchKey) => {
+            if (obj.hasOwnProperty(searchKey)) return obj[searchKey];
+
+            for (const key in obj) {
+                if (typeof obj[key] === 'object' && obj[key] !== null) {
+                    const found = findValueInObject(obj[key], searchKey);
+                    if (found !== undefined) return found;
+                }
+            }
+            return undefined;
+        };
+
+        if (presetName) {
+            const presetOutput = findValueInObject(result.api.presets, presetName);
+            response.status(presetOutput === undefined ? 404 : 200).send(presetOutput ?? `Unknown preset: ${presetName}`);
+            return;
+        }
 
         if (viewTemplate) {
             const findValueInObject = (obj, searchKey) => {
