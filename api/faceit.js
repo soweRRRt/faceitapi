@@ -536,7 +536,10 @@ export default async function handler(request, response) {
 
     const getPremadeEloChange = (match, eloChangesByMatchId, eloChangesBySignature) => {
         if (eloChangesByMatchId.has(match.match_id)) {
-            return eloChangesByMatchId.get(match.match_id);
+            return {
+                value: eloChangesByMatchId.get(match.match_id),
+                source: 'match_id'
+            };
         }
 
         const date = parseFaceitDate(match.date);
@@ -544,9 +547,17 @@ export default async function handler(request, response) {
             ? `${date.getTime()}|${match.map}|${match.score}`
             : null;
 
-        return signature && eloChangesBySignature.has(signature)
-            ? eloChangesBySignature.get(signature)
-            : null;
+        if (signature && eloChangesBySignature.has(signature)) {
+            return {
+                value: eloChangesBySignature.get(signature),
+                source: 'signature'
+            };
+        }
+
+        return {
+            value: null,
+            source: null
+        };
     };
 
     const calculatePremades = async (matches, playerId, options = {}) => {
@@ -571,6 +582,7 @@ export default async function handler(request, response) {
             adr: 0,
             elo_change: 0,
             elo_matches: 0,
+            match_details: [],
             mateKills: 0,
             mateKd: 0,
             mateAdr: 0
@@ -653,11 +665,22 @@ export default async function handler(request, response) {
                 entry.kills += parseInt(match.kills || 0);
                 entry.kd += parseFloat(match.kd_ratio || 0);
                 entry.adr += parseFloat(match.adr || 0);
-                const eloChange = getPremadeEloChange(match, eloChangesByMatchId, eloChangesBySignature);
+                const eloMatch = getPremadeEloChange(match, eloChangesByMatchId, eloChangesBySignature);
+                const eloChange = eloMatch.value;
                 if (eloChange !== null) {
                     entry.elo_change += eloChange;
                     entry.elo_matches++;
                 }
+                entry.match_details.push({
+                    match_id: match.match_id,
+                    date: match.date || null,
+                    result: isWin ? 'WIN' : 'LOSE',
+                    score: match.score || null,
+                    map: match.map || null,
+                    elo_change: eloChange,
+                    elo_text: eloChange === null ? null : (eloChange > 0 ? `+${eloChange}` : eloChange.toString()),
+                    elo_source: eloMatch.source
+                });
             };
 
             if (!premadeTeammates.length) {
@@ -680,7 +703,8 @@ export default async function handler(request, response) {
                         kd: 0,
                         adr: 0,
                         elo_change: 0,
-                        elo_matches: 0
+                        elo_matches: 0,
+                        match_details: []
                     });
                 }
 
@@ -721,6 +745,7 @@ export default async function handler(request, response) {
                 elo_missing_matches: entry.matches - entry.elo_matches,
                 elo_per_match: Number(eloPerMatch.toFixed(2)),
                 elo_text: entry.elo_change > 0 ? `+${entry.elo_change}` : entry.elo_change.toString(),
+                match_details: entry.match_details.slice(0, 10),
                 score: Number(score.toFixed(2))
             };
         };
@@ -959,7 +984,7 @@ export default async function handler(request, response) {
             const now = new Date();
             const todayStr = now.toLocaleDateString('ru-RU');
             const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const deepStatsUrl = `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=50&game_mode=5v5`;
+            const deepStatsUrl = `https://www.faceit.com/api/stats/v1/stats/time/users/${playerId}/games/cs2?page=0&size=60&game_mode=5v5`;
 
             log('info', 'deep-stats:request', {
                 todayStr,
@@ -1451,9 +1476,11 @@ export default async function handler(request, response) {
                 bestOverallElo: premades.best_overall?.elo_text || null,
                 bestOverallEloMatches: premades.best_overall?.elo_matches || 0,
                 bestOverallEloMissingMatches: premades.best_overall?.elo_missing_matches || 0,
+                bestOverallMatches: premades.best_overall?.match_details || [],
                 soloElo: premades.solo?.elo_text || null,
                 soloEloMatches: premades.solo?.elo_matches || 0,
-                soloEloMissingMatches: premades.solo?.elo_missing_matches || 0
+                soloEloMissingMatches: premades.solo?.elo_missing_matches || 0,
+                soloMatches: premades.solo?.match_details || []
             });
         }
         const commandBaseUrl = `${request.headers['x-forwarded-proto'] || 'https'}://${request.headers.host || 'faceitapi.vercel.app'}/api/faceit`;
