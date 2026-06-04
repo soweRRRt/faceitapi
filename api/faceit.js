@@ -1436,6 +1436,22 @@ export default async function handler(request, response) {
             });
         }
 
+        if (todayMatches.present && !todayMatches.start_elo) {
+            const todayEloChange = (parseInt(todayMatches.elo_win || 0) || 0) + (parseInt(todayMatches.elo_lose || 0) || 0);
+
+            if (todayEloChange) {
+                todayMatches.start_elo = Math.max(0, realCurrentElo - todayEloChange);
+                todayMatches.end_elo = realCurrentElo;
+                todayMatches.elo = todayEloChange > 0 ? `+${todayEloChange}` : todayEloChange.toString();
+
+                log('info', 'today:elo-derived-from-match-changes', {
+                    startElo: todayMatches.start_elo,
+                    endElo: todayMatches.end_elo,
+                    eloChange: todayMatches.elo
+                });
+            }
+        }
+
         const applyAddEloToAbsolute = (value) => {
             const parsed = parseInt(value || 0);
             return addElo !== null && parsed ? Math.max(0, parsed + addElo) : parsed;
