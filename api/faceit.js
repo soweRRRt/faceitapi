@@ -25,9 +25,12 @@ export default async function handler(request, response) {
             .replace(/\b\w/g, l => l.toUpperCase());
     };
 
-    const fetchWithAuth = (url, apiKey = FACEIT_API_KEY) => {
+    const fetchWithAuth = (url, apiKey = FACEIT_API_KEY, extraHeaders = {}) => {
         return fetch(url, {
-            headers: { 'Authorization': `Bearer ${apiKey}` }
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                ...extraHeaders
+            }
         });
     };
 
@@ -44,6 +47,17 @@ export default async function handler(request, response) {
             .split(' / ')
             .map(num => parseInt(num) || 0)
             .join(':');
+    };
+
+    const parseFaceitDate = (dateValue) => {
+        if (!dateValue) return null;
+
+        if (typeof dateValue === 'number') {
+            return new Date(dateValue < 1000000000000 ? dateValue * 1000 : dateValue);
+        }
+
+        const parsed = new Date(dateValue);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
     };
 
     try {
@@ -134,7 +148,13 @@ export default async function handler(request, response) {
 
             const todayResponse = await fetchWithAuth(
                 deepStatsUrl,
-                DEEP_FACEIT_API_KEY
+                DEEP_FACEIT_API_KEY,
+                {
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Referer': `https://www.faceit.com/en/players/${encodeURIComponent(nickname)}`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36'
+                }
             );
 
             if (todayResponse.ok) {
@@ -350,10 +370,17 @@ export default async function handler(request, response) {
         if (matchesResponse.ok) {
             const matchesData = await matchesResponse.json();
 
+            log('info', 'last-matches:loaded', {
+                count: matchesData.items?.length || 0,
+                firstStatsKeys: matchesData.items?.[0]?.stats ? Object.keys(matchesData.items[0].stats).slice(0, 40) : []
+            });
+
             lastMatches = matchesData.items.slice(0, 30).map(match => ({
                 match_id: match.match_id,
-                date: match.date,
+                date: match.date || match.started_at || match.finished_at,
                 result: match.stats.Result,
+                score: formatScore(match.stats.Score || match.stats['Final Score'] || match.stats['Match Score']),
+                map: match.stats.Map || match.stats.map || match.stats['Map Name'] || 'Unknown',
                 kills: parseInt(match.stats.Kills) || 0,
                 deaths: parseInt(match.stats.Deaths) || 0,
                 assists: parseInt(match.stats.Assists) || 0,
@@ -390,6 +417,62 @@ export default async function handler(request, response) {
             last30Stats.avg_adr = (totals.adr / last30Stats.matches_count).toFixed(2);
             last30Stats.avg_hs = (totals.hsPercent / last30Stats.matches_count).toFixed(0);
             last30Stats.winrate_30 = ((totals.wins / last30Stats.matches_count) * 100).toFixed(0);
+
+            if (!allMatchesReport && lastMatches.length > 0) {
+                const fallbackLast5 = lastMatches.slice(0, 5);
+                allMatchesReport = fallbackLast5.map(match =>
+                    `${match.result === '1' ? 'WIN' : 'LOSE'} ${match.score} ${getBeautifulMapName(match.map)}`
+                ).join(', ');
+
+                const lastMatch = lastMatches[0];
+                allMatchesLastMatch =
+                    `${lastMatch.result === '1' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
+                    `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
+                    `KDR: ${lastMatch.kd_ratio} HS: ${lastMatch.hs_percent}% ` +
+                    `MVP: ${lastMatch.mvps}`;
+
+                log('warn', 'deep-stats:fallback-used', {
+                    source: 'open-api-last-matches',
+                    reportReady: Boolean(allMatchesReport),
+                    lastMatchReady: Boolean(allMatchesLastMatch),
+                    eloChangesAvailable: false
+                });
+            }
+
+            if (!todayMatches.present && lastMatches.length > 0) {
+                const todayStrFallback = new Date().toLocaleDateString('ru-RU');
+                const fallbackTodayMatches = lastMatches.filter(match => {
+                    const matchDate = parseFaceitDate(match.date);
+                    return matchDate && matchDate.toLocaleDateString('ru-RU') === todayStrFallback;
+                });
+
+                if (fallbackTodayMatches.length > 0) {
+                    todayMatches.present = true;
+                    todayMatches.count = fallbackTodayMatches.length;
+                    todayMatches.win = fallbackTodayMatches.filter(match => match.result === '1').length;
+                    todayMatches.lose = fallbackTodayMatches.filter(match => match.result === '0').length;
+                    todayMatches.start_elo = todayMatches.end_elo;
+                    todayMatches.elo = "0";
+                    todayMatches.report = fallbackTodayMatches.map(match =>
+                        `${match.result === '1' ? 'WIN' : 'LOSE'} ${match.score} ${getBeautifulMapName(match.map)}`
+                    ).join(', ');
+
+                    const lastMatch = fallbackTodayMatches[0];
+                    todayMatches.last_match =
+                        `${lastMatch.result === '1' ? 'Victory' : 'Defeat'} on ${getBeautifulMapName(lastMatch.map)} (${lastMatch.score}), ` +
+                        `KAD: ${lastMatch.kills}/${lastMatch.assists}/${lastMatch.deaths} ` +
+                        `KDR: ${lastMatch.kd_ratio} HS: ${lastMatch.hs_percent}% ` +
+                        `MVP: ${lastMatch.mvps}`;
+
+                    log('warn', 'today:fallback-used', {
+                        source: 'open-api-last-matches',
+                        count: todayMatches.count,
+                        wins: todayMatches.win,
+                        losses: todayMatches.lose,
+                        eloChangesAvailable: false
+                    });
+                }
+            }
         } else {
             log('warn', 'last-matches:failed', {
                 status: matchesResponse.status,
