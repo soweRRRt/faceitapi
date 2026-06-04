@@ -88,7 +88,7 @@ export default async function handler(request, response) {
                     current_level: currentLevel,
                     next_level: "top",
                     available: true,
-                    elo_needed: Math.max((rankingTarget.elo || currentElo) - currentElo, 0),
+                    elo_needed: rankingTarget.elo >= currentElo ? rankingTarget.elo - currentElo + 1 : 0,
                     next_level_elo: rankingTarget.elo || null,
                     progress: null,
                     target_top: rankingTarget.position || null,
@@ -273,12 +273,13 @@ export default async function handler(request, response) {
                 const avgKills = parseFloat(segment.stats['Average Kills'] || 0);
                 const confidence = Math.min(1, Math.log10(matches + 1) / 2);
                 const score = (
-                    winrate * 1.2 +
-                    kd * 24 +
-                    adr * 0.28 +
-                    avgKills * 0.9 +
-                    wins * 0.18 +
-                    confidence * 18
+                    winrate * 1.0 +
+                    kd * 35 +
+                    adr * 0.3 +
+                    avgKills * 1.0 +
+                    wins * 0.05 +
+                    matches * 0.03 +
+                    confidence * 15
                 );
 
                 return {
@@ -290,7 +291,7 @@ export default async function handler(request, response) {
                     adr: adr.toFixed(2),
                     avg_kills: avgKills.toFixed(0),
                     score: Number(score.toFixed(2)),
-                    score_formula: "WR*1.2 + KD*24 + ADR*0.28 + AVG_KILLS*0.9 + WINS*0.18 + CONFIDENCE*18",
+                    score_formula: "WR*1.0 + KD*35 + ADR*0.3 + AVG_KILLS*1.0 + WINS*0.05 + MATCHES*0.03 + CONFIDENCE*15",
                     confidence: Number(confidence.toFixed(2))
                 };
             })
@@ -369,9 +370,9 @@ export default async function handler(request, response) {
             });
         }
 
-        if ((playerData.games?.cs2?.skill_level || 0) >= 10 && regionRanking && regionRanking > 1) {
+        if ((playerData.games?.cs2?.skill_level || 0) >= 10 && regionRanking) {
             try {
-                const targetPosition = regionRanking - 1;
+                const targetPosition = regionRanking > 1000 ? 1000 : Math.max(regionRanking - 1, 1);
                 const targetFromPlayerRanking = regionRankingItems.find(item => item.position === targetPosition);
 
                 if (targetFromPlayerRanking) {
@@ -384,10 +385,10 @@ export default async function handler(request, response) {
                             nickname: getRankingPlayerNickname(targetFromPlayerRanking)
                         };
                     }
-                } else if (regionRanking <= 1000) {
-                    const nextRankOffset = Math.max(regionRanking - 2, 0);
+                } else {
+                    const targetOffset = Math.max(targetPosition - 1, 0);
                     const nextRankResponse = await fetchWithAuth(
-                        `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${nextRankOffset}&limit=2`
+                        `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${targetOffset}&limit=1`
                     );
 
                     if (!nextRankResponse.ok) {
@@ -397,6 +398,7 @@ export default async function handler(request, response) {
                             statusText: nextRankResponse.statusText,
                             region,
                             regionRanking,
+                            targetPosition,
                             bodyPreview: bodyPreview.slice(0, 300)
                         });
                     } else {
@@ -464,7 +466,7 @@ export default async function handler(request, response) {
                     return {
                         target_top: position,
                         available: Boolean(targetPlayer && targetElo),
-                        elo_needed: targetElo ? Math.max(targetElo - currentElo, 0) : null,
+                        elo_needed: targetElo ? (targetElo >= currentElo ? targetElo - currentElo + 1 : 0) : null,
                         target_elo: targetElo || null,
                         target_nickname: getRankingPlayerNickname(targetPlayer)
                     };
@@ -645,7 +647,7 @@ export default async function handler(request, response) {
                         let eloChange = 0;
                         if (match.eloValue) {
                             const previousElo = index === 0 ? todayMatches.start_elo : sortedMatches[index - 1].eloValue;
-                            eloChange = calculateEloChange(match.eloValue, previousElo);
+                            eloChange = previousElo ? calculateEloChange(match.eloValue, previousElo) : 0;
                         }
 
                         if (isWin) {
@@ -675,7 +677,7 @@ export default async function handler(request, response) {
 
                     todayMatches.report = todayMatchesDetailed.reverse().map(match =>
                         `${match.result} ${match.score} ${getBeautifulMapName(match.map)}` +
-                        (match.elo_change !== 0 ? ` (${match.elo_change})` : '')
+                        (match.elo_change !== 0 && match.elo_change !== "0" ? ` (${match.elo_change})` : '')
                     ).join(', ');
 
                     if (todayMatchesDetailed.length > 0) {
