@@ -380,7 +380,10 @@ export default async function handler(request, response) {
         const protocol = request.headers['x-forwarded-proto'] || 'https';
         const host = request.headers.host;
         const baseUrl = `${protocol}://${host}`;
-        const apiUrl = `${baseUrl}/api/faceit?nick=${encodeURIComponent(nick)}&full&compact${normalizedType === 'premades' ? '&premades=true' : ''}`;
+        const premadesParams = normalizedType === 'premades'
+            ? `&premades=true${request.query.premades_min ? `&premades_min=${encodeURIComponent(request.query.premades_min)}` : ''}`
+            : '';
+        const apiUrl = `${baseUrl}/api/faceit?nick=${encodeURIComponent(nick)}&full&compact${premadesParams}`;
         const apiResponse = await fetch(apiUrl);
         const contentType = apiResponse.headers.get('content-type') || '';
 

@@ -396,6 +396,10 @@ export default async function handler(request, response) {
         return [];
     };
 
+    const collectPremadeGroups = (...sources) => {
+        return sources.flatMap(source => normalizePremadeGroups(source));
+    };
+
     const getPlayerPartyValue = (player) => {
         return player?.party_id ||
             player?.partyId ||
@@ -407,10 +411,31 @@ export default async function handler(request, response) {
             null;
     };
 
-    const getPremadeTeammates = (team, playerId) => {
+    const getPremadeTeammates = (team, playerId, details = {}) => {
         const players = team.players || team.roster || [];
         const playerIds = players.map(extractPlayerId);
-        const explicitGroups = normalizePremadeGroups(team.premade);
+        const explicitGroups = collectPremadeGroups(
+            team.premade,
+            team.premades,
+            team.party,
+            team.parties,
+            details.premade,
+            details.premades,
+            details.party,
+            details.parties,
+            details.entity?.premade,
+            details.entity?.premades,
+            details.entity?.party,
+            details.entity?.parties,
+            details.match?.premade,
+            details.match?.premades,
+            details.match?.party,
+            details.match?.parties,
+            details.payload?.premade,
+            details.payload?.premades,
+            details.payload?.party,
+            details.payload?.parties
+        );
         const explicitPlayerGroup = explicitGroups.find(group => group.includes(playerId));
 
         if (explicitPlayerGroup) {
@@ -441,14 +466,60 @@ export default async function handler(request, response) {
     const hasPremadeSignal = (team) => {
         const players = team.players || team.roster || [];
         return team.premade === true ||
-            normalizePremadeGroups(team.premade).length > 0 ||
+            collectPremadeGroups(team.premade, team.premades, team.party, team.parties).length > 0 ||
             players.some(player => getPlayerPartyValue(player));
     };
 
-    const calculatePremades = async (matches, playerId) => {
+    const normalizeTeams = (details = {}) => {
+        const teams = details.teams ||
+            details.payload?.teams ||
+            details.match?.teams ||
+            details.entity?.teams ||
+            {};
+
+        return Array.isArray(teams) ? teams : Object.values(teams);
+    };
+
+    const fetchPremadeMatchDetails = async (matchId) => {
+        const internalHeaders = {
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': `https://www.faceit.com/en/cs2/room/${matchId}`,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36'
+        };
+        const internalUrls = [
+            `https://www.faceit.com/api/match/v2/match/${matchId}`,
+            `https://api.faceit.com/match/v2/match/${matchId}`
+        ];
+
+        for (const url of internalUrls) {
+            const response = await fetchWithAuth(url, DEEP_FACEIT_API_KEY || FACEIT_API_KEY, internalHeaders);
+
+            if (response.ok) {
+                return {
+                    source: url.includes('/api/match/v2') ? 'faceit-internal-www-match-v2' : 'faceit-internal-api-match-v2',
+                    details: await response.json()
+                };
+            }
+        }
+
+        const openResponse = await fetchWithAuth(`https://open.faceit.com/data/v4/matches/${matchId}`);
+
+        if (openResponse.ok) {
+            return {
+                source: 'open-v4-match',
+                details: await openResponse.json()
+            };
+        }
+
+        return null;
+    };
+
+    const calculatePremades = async (matches, playerId, options = {}) => {
         const candidates = matches
             .filter(match => match.match_id)
             .slice(0, 50);
+        const minimumSharedMatches = Math.max(2, parseInt(options.minSharedMatches || 3) || 3);
 
         const premadeMap = new Map();
         const solo = {
@@ -466,64 +537,91 @@ export default async function handler(request, response) {
             mateAdr: 0
         };
 
-        const matchDetails = await Promise.allSettled(candidates.map(async (match) => {
-            const detailResponse = await fetchWithAuth(`https://open.faceit.com/data/v4/matches/${match.match_id}/stats`);
+        const matchDetails = await Promise.allSettled(candidates.map(async (match) => ({
+            match,
+            ...(await fetchPremadeMatchDetails(match.match_id) || {})
+        })));
 
-            if (!detailResponse.ok) {
-                return null;
-            }
-
-            return {
-                match,
-                details: await detailResponse.json()
-            };
-        }));
-
-        let matchesWithPremadeSignal = 0;
+        const normalizedMatches = [];
+        const teammateTotals = new Map();
+        let matchesWithRoster = 0;
+        let exactPartyMatches = 0;
+        const detailSources = {};
 
         for (const item of matchDetails) {
-            if (item.status !== 'fulfilled' || !item.value?.details?.rounds) continue;
+            if (item.status !== 'fulfilled' || !item.value?.details) continue;
 
-            const { match, details } = item.value;
-            const teams = (details.rounds || []).flatMap(round => round.teams || []);
+            const { match, details, source } = item.value;
+            const teams = normalizeTeams(details);
+            if (!teams.length) continue;
             const playerTeam = teams.find(team =>
                 (team.players || team.roster || []).some(player => extractPlayerId(player) === playerId)
             );
 
             if (!playerTeam) continue;
-            if (!hasPremadeSignal(playerTeam)) continue;
 
-            const playerStats = extractPlayerStats((playerTeam.players || playerTeam.roster || []).find(player => extractPlayerId(player) === playerId));
-            const premadeTeammates = getPremadeTeammates(playerTeam, playerId);
-            const teammates = premadeTeammates
+            detailSources[source || 'unknown'] = (detailSources[source || 'unknown'] || 0) + 1;
+
+            const allTeammates = (playerTeam.players || playerTeam.roster || [])
+                .filter(player => extractPlayerId(player) !== playerId)
                 .map(player => ({
                     id: extractPlayerId(player),
-                    nickname: extractPlayerNickname(player),
-                    stats: extractPlayerStats(player)
+                    nickname: extractPlayerNickname(player)
+                }))
+                .filter(player => player.id)
+                .sort((a, b) => a.nickname.localeCompare(b.nickname));
+            const exactTeammates = getPremadeTeammates(playerTeam, playerId, details)
+                .map(player => ({
+                    id: extractPlayerId(player),
+                    nickname: extractPlayerNickname(player)
                 }))
                 .filter(player => player.id)
                 .sort((a, b) => a.nickname.localeCompare(b.nickname));
 
+            matchesWithRoster++;
+            if (exactTeammates.length || hasPremadeSignal(playerTeam)) {
+                exactPartyMatches++;
+            }
+            normalizedMatches.push({ match, teammates: allTeammates, exactTeammates });
+
+            for (const teammate of allTeammates) {
+                if (!teammateTotals.has(teammate.id)) {
+                    teammateTotals.set(teammate.id, {
+                        id: teammate.id,
+                        nickname: teammate.nickname,
+                        matches: 0
+                    });
+                }
+
+                teammateTotals.get(teammate.id).matches++;
+            }
+        }
+
+        const recurringTeammates = new Map(
+            [...teammateTotals.values()]
+                .filter(teammate => teammate.matches >= minimumSharedMatches)
+                .map(teammate => [teammate.id, teammate])
+        );
+
+        for (const { match, teammates, exactTeammates } of normalizedMatches) {
+            const premadeTeammates = exactPartyMatches
+                ? exactTeammates
+                : teammates.filter(teammate => recurringTeammates.has(teammate.id));
             const isWin = normalizeResult(match.result) === 'WIN';
             const addStats = (entry) => {
                 entry.matches++;
                 isWin ? entry.wins++ : entry.losses++;
-                entry.kills += playerStats.kills || parseInt(match.kills || 0);
-                entry.kd += playerStats.kd || parseFloat(match.kd_ratio || 0);
-                entry.adr += playerStats.adr || parseFloat(match.adr || 0);
-                entry.mateKills += entry.currentComboStats?.kills || 0;
-                entry.mateKd += entry.currentComboStats?.kd || 0;
-                entry.mateAdr += entry.currentComboStats?.adr || 0;
+                entry.kills += parseInt(match.kills || 0);
+                entry.kd += parseFloat(match.kd_ratio || 0);
+                entry.adr += parseFloat(match.adr || 0);
             };
 
-            if (!teammates.length) {
+            if (!premadeTeammates.length) {
                 addStats(solo);
                 continue;
             }
 
-            matchesWithPremadeSignal++;
-
-            for (const combo of getCombinations(teammates)) {
+            for (const combo of getCombinations(premadeTeammates)) {
                 const key = combo.map(player => player.id).join('|');
 
                 if (!premadeMap.has(key)) {
@@ -536,21 +634,11 @@ export default async function handler(request, response) {
                         losses: 0,
                         kills: 0,
                         kd: 0,
-                        adr: 0,
-                        mateKills: 0,
-                        mateKd: 0,
-                        mateAdr: 0
+                        adr: 0
                     });
                 }
 
-                const entry = premadeMap.get(key);
-                entry.currentComboStats = {
-                    kills: combo.reduce((sum, player) => sum + player.stats.kills, 0) / combo.length,
-                    kd: combo.reduce((sum, player) => sum + player.stats.kd, 0) / combo.length,
-                    adr: combo.reduce((sum, player) => sum + player.stats.adr, 0) / combo.length
-                };
-                addStats(entry);
-                delete entry.currentComboStats;
+                addStats(premadeMap.get(key));
             }
         }
 
@@ -559,9 +647,6 @@ export default async function handler(request, response) {
             const avgKills = entry.matches ? entry.kills / entry.matches : 0;
             const avgKd = entry.matches ? entry.kd / entry.matches : 0;
             const avgAdr = entry.matches ? entry.adr / entry.matches : 0;
-            const teammateAvgKills = entry.matches ? entry.mateKills / entry.matches : 0;
-            const teammateAvgKd = entry.matches ? entry.mateKd / entry.matches : 0;
-            const teammateAvgAdr = entry.matches ? entry.mateAdr / entry.matches : 0;
             const score = winrate * 0.9 +
                 entry.matches * 3 +
                 entry.wins * 1.5 -
@@ -569,9 +654,6 @@ export default async function handler(request, response) {
                 avgKills * 0.8 +
                 avgKd * 12 +
                 avgAdr * 0.12 +
-                teammateAvgKills * 0.35 +
-                teammateAvgKd * 6 +
-                teammateAvgAdr * 0.06 +
                 entry.size;
 
             return {
@@ -585,9 +667,6 @@ export default async function handler(request, response) {
                 avg_kills: avgKills.toFixed(0),
                 avg_kd: avgKd.toFixed(2),
                 avg_adr: avgAdr.toFixed(2),
-                teammate_avg_kills: teammateAvgKills.toFixed(0),
-                teammate_avg_kd: teammateAvgKd.toFixed(2),
-                teammate_avg_adr: teammateAvgAdr.toFixed(2),
                 score: Number(score.toFixed(2))
             };
         };
@@ -599,8 +678,18 @@ export default async function handler(request, response) {
 
         return {
             sample_matches: candidates.length,
-            matches_with_premade_signal: matchesWithPremadeSignal,
-            formula: "WR*0.9 + MATCHES*3 + WINS*1.5 - LOSSES + YOUR_AVG*0.8 + YOUR_KD*12 + YOUR_ADR*0.12 + MATE_AVG*0.35 + MATE_KD*6 + MATE_ADR*0.06 + STACK_SIZE",
+            matches_with_roster: matchesWithRoster,
+            exact_party_matches: exactPartyMatches,
+            mode: exactPartyMatches ? "exact_faceit_party" : "inferred_recurring_teammates",
+            detail_sources: detailSources,
+            minimum_shared_matches: minimumSharedMatches,
+            recurring_teammates: [...recurringTeammates.values()]
+                .sort((a, b) => b.matches - a.matches)
+                .slice(0, 10),
+            formula: "WR*0.9 + MATCHES*3 + WINS*1.5 - LOSSES + AVG*0.8 + KD*12 + ADR*0.12 + STACK_SIZE",
+            source: exactPartyMatches
+                ? "FACEIT match room/internal party data"
+                : "inferred from repeated teammates; one-off random teammates are ignored",
             best: groups[0] || null,
             top: groups.slice(0, 5),
             solo: solo.matches ? finalize(solo) : null
@@ -1214,7 +1303,11 @@ export default async function handler(request, response) {
             : null;
         const peakToday = getPeakToday(allMatchesDetailed, currentElo, todayStrForSession);
         const tiltMeter = getTiltMeter(lastMatches, allMatchesDetailed);
-        const premades = premadesMode ? await calculatePremades(lastMatches, playerId) : null;
+        const premades = premadesMode
+            ? await calculatePremades(lastMatches, playerId, {
+                minSharedMatches: request.query.premades_min
+            })
+            : null;
         const commandBaseUrl = `${request.headers['x-forwarded-proto'] || 'https'}://${request.headers.host || 'faceitapi.vercel.app'}/api/faceit`;
         const widgetBaseUrl = commandBaseUrl.replace('/api/faceit', '/api/widget');
         const makeStreamElementsCommand = (preset) =>
