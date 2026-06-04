@@ -4,6 +4,7 @@ export default async function handler(request, response) {
 
     const { nick: nickname, view: viewTemplate, preset: presetName } = request.query;
     const fullMode = 'full' in request.query;
+    const compactMode = 'compact' in request.query;
     const { FACEIT_API_KEY, DEEP_FACEIT_API_KEY } = process.env;
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -86,6 +87,7 @@ export default async function handler(request, response) {
                 return {
                     current_level: currentLevel,
                     next_level: "top",
+                    available: true,
                     elo_needed: Math.max((rankingTarget.elo || currentElo) - currentElo, 0),
                     next_level_elo: rankingTarget.elo || null,
                     progress: null,
@@ -96,10 +98,13 @@ export default async function handler(request, response) {
 
             return {
                 current_level: currentLevel,
-                next_level: null,
+                next_level: "top",
+                available: false,
                 elo_needed: 0,
                 next_level_elo: null,
-                progress: "100%"
+                progress: null,
+                target_top: null,
+                target_nickname: null
             };
         }
 
@@ -112,6 +117,7 @@ export default async function handler(request, response) {
         return {
             current_level: currentLevel,
             next_level: nextLevel,
+            available: true,
             elo_needed: Math.max(nextLevelElo - currentElo, 0),
             next_level_elo: nextLevelElo,
             progress: `${Math.round(progress)}%`
@@ -122,7 +128,6 @@ export default async function handler(request, response) {
         return parseInt(
             rankingPlayer?.faceit_elo ??
             rankingPlayer?.elo ??
-            rankingPlayer?.game_skill_level ??
             rankingPlayer?.games?.cs2?.faceit_elo ??
             0
         ) || 0;
@@ -186,6 +191,76 @@ export default async function handler(request, response) {
         return `${normalized}${count}`;
     };
 
+    const normalizeResult = (result) => {
+        return result === '1' || result === 'WIN' ? 'WIN' : 'LOSE';
+    };
+
+    const getMatchPerformanceScore = (match) => {
+        const kills = parseInt(match.kills || 0);
+        const assists = parseInt(match.assists || 0);
+        const deaths = parseInt(match.deaths || 0);
+        const kd = parseFloat(match.kd_ratio || 0);
+        const adr = parseFloat(match.adr || 0);
+        const mvps = parseInt(match.mvps || 0);
+
+        return Number((kills * 1.2 + assists * 0.45 - deaths * 0.55 + kd * 8 + adr * 0.08 + mvps * 1.5).toFixed(2));
+    };
+
+    const getPeakToday = (matches, currentElo, todayStr) => {
+        const todayEloMatches = matches
+            .filter(match => {
+                const date = parseFaceitDate(match.date);
+                return date && date.toLocaleDateString('ru-RU') === todayStr && match.elo;
+            })
+            .map(match => ({
+                elo: parseInt(match.elo || 0),
+                date: match.date,
+                result: match.result,
+                map: match.map,
+                score: match.score
+            }))
+            .filter(match => match.elo > 0);
+
+        if (!todayEloMatches.length) {
+            return {
+                peak_elo: currentElo,
+                lowest_elo: currentElo,
+                current_from_peak: 0,
+                peak_match: null
+            };
+        }
+
+        const peakMatch = todayEloMatches.reduce((best, match) => match.elo > best.elo ? match : best, todayEloMatches[0]);
+        const lowMatch = todayEloMatches.reduce((worst, match) => match.elo < worst.elo ? match : worst, todayEloMatches[0]);
+
+        return {
+            peak_elo: peakMatch.elo,
+            lowest_elo: lowMatch.elo,
+            current_from_peak: currentElo - peakMatch.elo,
+            peak_match: peakMatch
+        };
+    };
+
+    const getTiltMeter = (matches, detailedMatches = []) => {
+        const last5 = matches.slice(0, 5);
+        const losses = last5.filter(match => normalizeResult(match.result) === 'LOSE').length;
+        const avgKd = last5.length
+            ? last5.reduce((sum, match) => sum + (parseFloat(match.kd_ratio) || 0), 0) / last5.length
+            : 0;
+        const eloChange = detailedMatches.slice(0, 5).reduce((sum, match) => sum + (parseInt(match.elo_change) || 0), 0);
+        const currentStreak = getCurrentStreak(matches);
+        const score = losses * 20 + (avgKd < 0.9 ? 20 : 0) + (eloChange < -50 ? 25 : 0) + (currentStreak.startsWith('L') ? parseInt(currentStreak.slice(1)) * 10 : 0);
+
+        return {
+            status: score >= 60 ? "tilted" : score >= 30 ? "warning" : "calm",
+            score: Math.min(score, 100),
+            last5_losses: losses,
+            last5_avg_kd: avgKd.toFixed(2),
+            last5_elo: eloChange,
+            streak: currentStreak
+        };
+    };
+
     const getMapSummaries = (segments = []) => {
         const maps = segments
             .filter(segment => segment.type === 'Map' && segment.stats)
@@ -193,29 +268,45 @@ export default async function handler(request, response) {
                 const matches = parseInt(segment.stats.Matches || segment.stats['Total Matches'] || 0);
                 const wins = parseInt(segment.stats.Wins || 0);
                 const winrate = parseFloat(segment.stats['Win Rate %'] || 0);
+                const kd = parseFloat(segment.stats['Average K/D Ratio'] || segment.stats['K/D Ratio'] || 0);
+                const adr = parseFloat(segment.stats.ADR || 0);
+                const avgKills = parseFloat(segment.stats['Average Kills'] || 0);
+                const confidence = Math.min(1, Math.log10(matches + 1) / 2);
+                const score = (
+                    winrate * 1.2 +
+                    kd * 24 +
+                    adr * 0.28 +
+                    avgKills * 0.9 +
+                    wins * 0.18 +
+                    confidence * 18
+                );
 
                 return {
                     name: segment.label,
                     matches,
                     wins,
                     winrate: `${Math.round(winrate)}%`,
-                    kd: parseFloat(segment.stats['Average K/D Ratio'] || segment.stats['K/D Ratio'] || 0).toFixed(2),
-                    adr: parseFloat(segment.stats.ADR || 0).toFixed(2),
-                    avg_kills: parseFloat(segment.stats['Average Kills'] || 0).toFixed(0)
+                    kd: kd.toFixed(2),
+                    adr: adr.toFixed(2),
+                    avg_kills: avgKills.toFixed(0),
+                    score: Number(score.toFixed(2)),
+                    score_formula: "WR*1.2 + KD*24 + ADR*0.28 + AVG_KILLS*0.9 + WINS*0.18 + CONFIDENCE*18",
+                    confidence: Number(confidence.toFixed(2))
                 };
             })
             .filter(map => map.matches > 0);
 
         const sortedByBest = [...maps].sort((a, b) =>
-            parseInt(b.winrate) - parseInt(a.winrate) || b.matches - a.matches || parseFloat(b.kd) - parseFloat(a.kd)
+            b.score - a.score || b.matches - a.matches || parseFloat(b.kd) - parseFloat(a.kd)
         );
         const sortedByWorst = [...maps].sort((a, b) =>
-            parseInt(a.winrate) - parseInt(b.winrate) || b.matches - a.matches || parseFloat(a.kd) - parseFloat(b.kd)
+            a.score - b.score || b.matches - a.matches || parseFloat(a.kd) - parseFloat(b.kd)
         );
 
         return {
             best: sortedByBest[0] || null,
             worst: sortedByWorst[0] || null,
+            recommended: sortedByBest.slice(0, 3),
             all: maps
         };
     };
@@ -252,15 +343,18 @@ export default async function handler(request, response) {
         });
 
         let regionRanking = null;
+        let regionRankingItems = [];
         let nextRankingTarget = null;
+        let rankProgress = [];
         try {
             const rankingResponse = await fetchWithAuth(
-                `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}/players/${playerId}?offset=0&limit=1`
+                `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}/players/${playerId}?offset=0&limit=100`
             );
 
             if (rankingResponse.ok) {
                 const rankingData = await rankingResponse.json();
                 regionRanking = rankingData.position;
+                regionRankingItems = rankingData.items || [];
             } else {
                 log('warn', 'ranking:failed', {
                     status: rankingResponse.status,
@@ -277,38 +371,62 @@ export default async function handler(request, response) {
 
         if ((playerData.games?.cs2?.skill_level || 0) >= 10 && regionRanking && regionRanking > 1) {
             try {
-                const nextRankOffset = Math.max(regionRanking - 2, 0);
-                const nextRankResponse = await fetchWithAuth(
-                    `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${nextRankOffset}&limit=2`
-                );
+                const targetPosition = regionRanking - 1;
+                const targetFromPlayerRanking = regionRankingItems.find(item => item.position === targetPosition);
 
-                if (nextRankResponse.ok) {
-                    const nextRankData = await nextRankResponse.json();
-                    const rankingItems = nextRankData.items || [];
-                    const targetPosition = regionRanking - 1;
-                    const targetPlayer = rankingItems.find(item => item.position === targetPosition) || rankingItems[0];
-                    const targetElo = getRankingPlayerElo(targetPlayer);
+                if (targetFromPlayerRanking) {
+                    const targetElo = getRankingPlayerElo(targetFromPlayerRanking);
 
-                    if (targetPlayer && targetElo) {
+                    if (targetElo) {
                         nextRankingTarget = {
-                            position: targetPlayer.position || targetPosition,
+                            position: targetFromPlayerRanking.position || targetPosition,
                             elo: targetElo,
-                            nickname: getRankingPlayerNickname(targetPlayer)
+                            nickname: getRankingPlayerNickname(targetFromPlayerRanking)
                         };
                     }
+                } else if (regionRanking <= 1000) {
+                    const nextRankOffset = Math.max(regionRanking - 2, 0);
+                    const nextRankResponse = await fetchWithAuth(
+                        `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${nextRankOffset}&limit=2`
+                    );
 
+                    if (!nextRankResponse.ok) {
+                        const bodyPreview = await nextRankResponse.text().catch(() => '');
+                        log('warn', 'ranking:next-target-failed', {
+                            status: nextRankResponse.status,
+                            statusText: nextRankResponse.statusText,
+                            region,
+                            regionRanking,
+                            bodyPreview: bodyPreview.slice(0, 300)
+                        });
+                    } else {
+                        const nextRankData = await nextRankResponse.json();
+                        const rankingItems = nextRankData.items || [];
+                        const targetPlayer = rankingItems.find(item => item.position === targetPosition) || rankingItems[0];
+                        const targetElo = getRankingPlayerElo(targetPlayer);
+
+                        if (targetPlayer && targetElo) {
+                            nextRankingTarget = {
+                                position: targetPlayer.position || targetPosition,
+                                elo: targetElo,
+                                nickname: getRankingPlayerNickname(targetPlayer)
+                            };
+                        }
+                    }
+                }
+
+                if (nextRankingTarget) {
                     log('info', 'ranking:next-target-loaded', {
                         currentPosition: regionRanking,
                         targetPosition,
-                        targetElo: nextRankingTarget?.elo || null,
-                        targetNickname: nextRankingTarget?.nickname || null
+                        targetElo: nextRankingTarget.elo,
+                        targetNickname: nextRankingTarget.nickname
                     });
                 } else {
-                    log('warn', 'ranking:next-target-failed', {
-                        status: nextRankResponse.status,
-                        statusText: nextRankResponse.statusText,
-                        region,
-                        regionRanking
+                    log('warn', 'ranking:next-target-missing', {
+                        currentPosition: regionRanking,
+                        targetPosition,
+                        playerRankingItemsCount: regionRankingItems.length
                     });
                 }
             } catch (e) {
@@ -317,6 +435,54 @@ export default async function handler(request, response) {
                     stack: e.stack
                 });
             }
+        }
+
+        if ((playerData.games?.cs2?.skill_level || 0) >= 10 && regionRanking) {
+            const currentElo = playerData.games?.cs2?.faceit_elo || 0;
+            const rankTargets = [1000, 500, 100, 10].filter(position => regionRanking > position);
+
+            rankProgress = await Promise.all(rankTargets.map(async (position) => {
+                try {
+                    const targetResponse = await fetchWithAuth(
+                        `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${position - 1}&limit=1`
+                    );
+
+                    if (!targetResponse.ok) {
+                        return {
+                            target_top: position,
+                            available: false,
+                            elo_needed: null,
+                            target_elo: null,
+                            target_nickname: null
+                        };
+                    }
+
+                    const targetData = await targetResponse.json();
+                    const targetPlayer = targetData.items?.[0];
+                    const targetElo = getRankingPlayerElo(targetPlayer);
+
+                    return {
+                        target_top: position,
+                        available: Boolean(targetPlayer && targetElo),
+                        elo_needed: targetElo ? Math.max(targetElo - currentElo, 0) : null,
+                        target_elo: targetElo || null,
+                        target_nickname: getRankingPlayerNickname(targetPlayer)
+                    };
+                } catch (e) {
+                    log('error', 'ranking:progress-error', {
+                        targetTop: position,
+                        message: e.message
+                    });
+
+                    return {
+                        target_top: position,
+                        available: false,
+                        elo_needed: null,
+                        target_elo: null,
+                        target_nickname: null
+                    };
+                }
+            }));
         }
 
         const todayMatches = {
@@ -581,8 +747,8 @@ export default async function handler(request, response) {
             });
 
             lastMatches = matchesData.items.slice(0, 30).map(match => ({
-                match_id: match.match_id,
-                date: match.date || match.started_at || match.finished_at,
+                match_id: match.match_id || match.stats['Match Id'],
+                date: match.date || match.started_at || match.finished_at || match.stats['Match Finished At'] || match.stats['Created At'],
                 result: match.stats.Result,
                 score: formatScore(match.stats.Score || match.stats['Final Score'] || match.stats['Match Score']),
                 map: match.stats.Map || match.stats.map || match.stats['Map Name'] || 'Unknown',
@@ -698,16 +864,18 @@ export default async function handler(request, response) {
         const currentElo = playerData.games?.cs2?.faceit_elo || 0;
         const last5Matches = lastMatches.slice(0, 5);
         const last10Matches = lastMatches.slice(0, 10);
-        const sessionSourceMatches = todayMatchesDetailed.length
-            ? todayMatchesDetailed.map(match => ({
+        const todayStrForSession = new Date().toLocaleDateString('ru-RU');
+        const openApiTodayMatches = lastMatches.filter(match => {
+            const matchDate = parseFaceitDate(match.date);
+            return matchDate && matchDate.toLocaleDateString('ru-RU') === todayStrForSession;
+        });
+        const sessionSourceMatches = openApiTodayMatches.length
+            ? openApiTodayMatches
+            : todayMatchesDetailed.map(match => ({
                 ...match,
                 result: match.result,
                 hs_percent: calculateHSPercentage(match.headshots, match.kills)
-            }))
-            : lastMatches.filter(match => {
-                const matchDate = parseFaceitDate(match.date);
-                return matchDate && matchDate.toLocaleDateString('ru-RU') === new Date().toLocaleDateString('ru-RU');
-            });
+            }));
         const sessionStats = calculateMatchAverages(sessionSourceMatches);
         const last5Stats = calculateMatchAverages(last5Matches);
         const last10Stats = calculateMatchAverages(last10Matches);
@@ -719,15 +887,48 @@ export default async function handler(request, response) {
         };
         const nextLevel = getNextLevelProgress(currentElo, currentLevel, nextRankingTarget);
         const maps = getMapSummaries(statsData.segments);
+        const mapRecommendation = {
+            pick: maps.recommended[0] || null,
+            avoid: maps.worst || null,
+            top3: maps.recommended
+        };
         const bestMapText = maps.best
-            ? `${maps.best.name}: ${maps.best.winrate} WR, ${maps.best.kd} KD, ${maps.best.adr} ADR`
+            ? `${maps.best.name}: ${maps.best.score} score, ${maps.best.winrate} WR, ${maps.best.kd} KD, ${maps.best.adr} ADR`
             : "No map data";
         const worstMapText = maps.worst
-            ? `${maps.worst.name}: ${maps.worst.winrate} WR, ${maps.worst.kd} KD, ${maps.worst.adr} ADR`
+            ? `${maps.worst.name}: ${maps.worst.score} score, ${maps.worst.winrate} WR, ${maps.worst.kd} KD, ${maps.worst.adr} ADR`
             : "No map data";
+        const bestMatchToday = sessionSourceMatches.length
+            ? sessionSourceMatches
+                .map(match => ({
+                    result: normalizeResult(match.result),
+                    score: match.score,
+                    map: match.map,
+                    kills: parseInt(match.kills || 0),
+                    deaths: parseInt(match.deaths || 0),
+                    assists: parseInt(match.assists || 0),
+                    kd_ratio: parseFloat(match.kd_ratio || 0),
+                    adr: parseFloat(match.adr || 0),
+                    mvps: parseInt(match.mvps || 0),
+                    performance_score: getMatchPerformanceScore(match)
+                }))
+                .sort((a, b) => b.performance_score - a.performance_score)[0]
+            : null;
+        const peakToday = getPeakToday(allMatchesDetailed, currentElo, todayStrForSession);
+        const tiltMeter = getTiltMeter(lastMatches, allMatchesDetailed);
+        const commandBaseUrl = `${request.headers['x-forwarded-proto'] || 'https'}://${request.headers.host || 'faceitapi.vercel.app'}/api/faceit`;
+        const commandExamples = {
+            streamelements_elo: `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=elo)'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`,
+            streamelements_last: `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=last)'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`,
+            streamelements_stats: `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=stats)'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`,
+            direct_elo: `${commandBaseUrl}?nick=${encodeURIComponent(nickname)}&preset=elo`,
+            direct_widget: `${commandBaseUrl.replace('/api/faceit', '/api/widget')}?nick=${encodeURIComponent(nickname)}`
+        };
         const todayShort = `${todayMatches.win}W/${todayMatches.lose}L ${todayMatches.elo}`;
-        const nextLevelText = nextLevel.next_level === "top"
+        const nextLevelText = nextLevel.next_level === "top" && nextLevel.available
             ? `TOP #${regionRanking || 'N/A'} -> #${nextLevel.target_top || 'N/A'}: ${nextLevel.elo_needed} ELO left${nextLevel.target_nickname ? ` (${nextLevel.target_nickname})` : ''}`
+            : nextLevel.next_level === "top"
+            ? `TOP #${regionRanking || 'N/A'}: next target unavailable`
             : nextLevel.next_level
             ? `LVL ${nextLevel.current_level}->${nextLevel.next_level}: ${nextLevel.elo_needed} ELO left`
             : `LVL ${nextLevel.current_level}: max level`;
@@ -740,9 +941,14 @@ export default async function handler(request, response) {
             stats: `LAST ${last30Stats.matches_count} MATCHES STATS: ${last30Stats.wins} W, ${last30Stats.losses} L, ${last30Stats.winrate_30 || 0}% WR, ${last30Stats.avg_kills || 0} AVG, ${last30Stats.avg_kd || 0} KD, ${last30Stats.avg_kr || 0} KR, ${last30Stats.avg_adr || 0} ADR, ${last30Stats.avg_hs || 0}% HS`,
             form: `FORM: ${form.last5 || 'N/A'}, STREAK: ${form.current_streak || 'N/A'}, LAST 5 WR: ${form.last5_winrate}, LAST 10 WR: ${form.last10_winrate}`,
             next_level: nextLevelText,
+            rank_progress: rankProgress.length ? rankProgress.map(target => target.available ? `TOP ${target.target_top}: ${target.elo_needed} ELO left` : `TOP ${target.target_top}: unavailable`).join(' | ') : nextLevelText,
             maps: `BEST MAP: ${bestMapText} | WORST MAP: ${worstMapText}`,
             best_map: bestMapText,
             worst_map: worstMapText,
+            map_pick: mapRecommendation.pick ? `PICK: ${mapRecommendation.pick.name} (${mapRecommendation.pick.score} score, ${mapRecommendation.pick.winrate} WR)` : "No map data",
+            peak_today: `PEAK TODAY: ${peakToday.peak_elo} ELO (${peakToday.current_from_peak >= 0 ? '+' : ''}${peakToday.current_from_peak} from peak)`,
+            best_match_today: bestMatchToday ? `BEST TODAY: ${bestMatchToday.result} ${bestMatchToday.score} ${getBeautifulMapName(bestMatchToday.map)} ${bestMatchToday.kills}/${bestMatchToday.assists}/${bestMatchToday.deaths}, ${bestMatchToday.kd_ratio} KD` : "No matches today",
+            tilt: `TILT: ${tiltMeter.status.toUpperCase()} (${tiltMeter.score}/100), ${tiltMeter.last5_losses}L last 5, ${tiltMeter.last5_avg_kd} KD`,
             avatar: playerData.avatar || "",
             cover: playerData.cover_image || "",
             fullbar: `LVL ${currentLevel} | ${currentElo} ELO | ${todayShort} | ${form.last5 || 'N/A'} | ${allMatchesLastMatch || 'No last match data'}`
@@ -771,7 +977,13 @@ export default async function handler(request, response) {
                 session_stats: sessionStats,
                 form,
                 next_level: nextLevel,
+                rank_progress: rankProgress,
+                peak_today: peakToday,
+                best_match_today: bestMatchToday,
+                tilt_meter: tiltMeter,
                 maps,
+                map_recommendation: mapRecommendation,
+                command_examples: commandExamples,
                 presets,
                 report: allMatchesReport,
                 last_match: allMatchesLastMatch
@@ -794,7 +1006,7 @@ export default async function handler(request, response) {
                 win_rate: statsData.lifetime['Win Rate %'],
                 current_win_streak: statsData.lifetime['Current Win Streak'],
                 average_headshots: statsData.lifetime['Average Headshots %'],
-                kd_ratio: statsData.lifetime['K/D Ratio'],
+                kd_ratio: statsData.lifetime['Average K/D Ratio'] || statsData.lifetime['K/D Ratio'],
                 matches: statsData.lifetime.Matches,
                 average_kills: statsData.lifetime['Average Kills'],
                 average_deaths: statsData.lifetime['Average Deaths'],
@@ -806,6 +1018,17 @@ export default async function handler(request, response) {
             all_stats: statsData,
             all_player_data: playerData
         };
+        const responseResult = compactMode
+            ? {
+                nickname: result.nickname,
+                player_id: result.player_id,
+                api: result.api,
+                player_info: result.player_info,
+                faceit_stats: result.faceit_stats,
+                lifetime_stats: result.lifetime_stats,
+                last_matches: result.last_matches.slice(0, 5)
+            }
+            : result;
 
         const findValueInObject = (obj, searchKey) => {
             if (obj.hasOwnProperty(searchKey)) return obj[searchKey];
@@ -840,13 +1063,13 @@ export default async function handler(request, response) {
 
             const textOutput = viewTemplate.replace(/\{([\w.]+)\}/g, (_, key) => {
                 if (fullMode) {
-                    return key.split('.').reduce((obj, k) => obj?.[k], result) ?? `{${key}}`;
+                    return key.split('.').reduce((obj, k) => obj?.[k], responseResult) ?? `{${key}}`;
                 } else {
                     if (key.includes('.')) {
                         const parts = key.split('.');
-                        return parts.reduce((obj, k) => obj?.[k], result.api) ?? `{${key}}`;
+                        return parts.reduce((obj, k) => obj?.[k], responseResult.api) ?? `{${key}}`;
                     } else {
-                        return findValueInObject(result.api, key) ?? `{${key}}`;
+                        return findValueInObject(responseResult.api, key) ?? `{${key}}`;
                     }
                 }
             });
@@ -856,9 +1079,9 @@ export default async function handler(request, response) {
         }
 
         if (fullMode) {
-            response.status(200).json(result);
+            response.status(200).json(responseResult);
         } else {
-            const { nickname, player_id, api } = result;
+            const { nickname, player_id, api } = responseResult;
             response.status(200).json({ nickname, player_id, api });
         }
 
