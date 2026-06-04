@@ -675,6 +675,13 @@ export default async function handler(request, response) {
             .filter(entry => entry.matches > 0)
             .map(finalize)
             .sort((a, b) => b.score - a.score || b.matches - a.matches || parseFloat(b.avg_kd) - parseFloat(a.avg_kd));
+        const soloFinal = solo.matches ? finalize(solo) : null;
+        const comparison = [
+            ...groups,
+            soloFinal
+        ]
+            .filter(Boolean)
+            .sort((a, b) => b.score - a.score || b.matches - a.matches || parseFloat(b.avg_kd) - parseFloat(a.avg_kd));
 
         return {
             sample_matches: candidates.length,
@@ -691,8 +698,10 @@ export default async function handler(request, response) {
                 ? "FACEIT match room/internal party data"
                 : "inferred from repeated teammates; one-off random teammates are ignored",
             best: groups[0] || null,
+            best_overall: comparison[0] || null,
             top: groups.slice(0, 5),
-            solo: solo.matches ? finalize(solo) : null
+            comparison: comparison.slice(0, 6),
+            solo: soloFinal
         };
     };
 

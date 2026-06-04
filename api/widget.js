@@ -138,13 +138,13 @@ const getRows = (type, api) => {
 
     if (type === 'premades') {
         const premades = api.premades || {};
-        const best = premades.best;
+        const best = premades.best_overall || premades.best;
         const solo = premades.solo;
 
         return [
-            statCell('BEST STACK', best ? best.label : 'No premades data', 'accent'),
-            statCellRaw('STACK WR', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)} WR` : 'N/A'),
-            statCell('STACK AVG', best ? `${best.avg_kills} AVG / ${best.avg_kd} KD` : 'N/A'),
+            statCell('BEST MODE', best ? best.label : 'No premades data', 'accent'),
+            statCellRaw('MODE WR', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)} WR` : 'N/A'),
+            statCell('MODE AVG', best ? `${best.avg_kills} AVG / ${best.avg_kd} KD` : 'N/A'),
             statCell('SOLO', solo ? `${solo.winrate} WR, ${solo.avg_kd} KD` : 'No solo games')
         ].join('');
     }
