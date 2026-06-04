@@ -694,7 +694,8 @@ export default async function handler(request, response) {
 
                     const expectedTotalChange = calculateEloChange(todayMatches.end_elo, todayMatches.start_elo);
                     if (Math.abs(parseInt(todayMatches.elo) - expectedTotalChange) > 2) {
-                        log('warn', 'today:elo-mismatch', {
+                        const logLevel = todayMatches.start_elo === 0 ? 'info' : 'warn';
+                        log(logLevel, 'today:elo-reconciled', {
                             calculated: parseInt(todayMatches.elo),
                             expected: expectedTotalChange,
                             start: todayMatches.start_elo,
