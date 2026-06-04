@@ -175,6 +175,70 @@ export default async function handler(request, response) {
         return rankingPlayer?.nickname || rankingPlayer?.player?.nickname || rankingPlayer?.name || null;
     };
 
+    const fetchRankingPlayerAtPosition = async (region, position) => {
+        if (!position || position < 1) return null;
+
+        const rankingResponse = await fetchWithAuth(
+            `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${position - 1}&limit=1`
+        );
+
+        if (!rankingResponse.ok) {
+            return null;
+        }
+
+        const rankingData = await rankingResponse.json();
+        const rankingPlayer = rankingData.items?.[0];
+
+        if (!rankingPlayer) return null;
+
+        return {
+            position: rankingPlayer.position || position,
+            elo: getRankingPlayerElo(rankingPlayer),
+            nickname: getRankingPlayerNickname(rankingPlayer),
+            raw: rankingPlayer
+        };
+    };
+
+    const getVirtualRankByElo = async (region, targetElo, fallbackPosition = null) => {
+        const target = parseInt(targetElo || 0);
+        if (!target) return null;
+
+        let low = 1;
+        let high = fallbackPosition || 1000000;
+        let highPlayer = await fetchRankingPlayerAtPosition(region, high);
+
+        while (highPlayer && highPlayer.elo > target && high < 2000000) {
+            low = high + 1;
+            high = high * 2;
+            highPlayer = await fetchRankingPlayerAtPosition(region, high);
+        }
+
+        if (!highPlayer) {
+            high = Math.max(low, Math.floor(high / 2));
+        }
+
+        let bestPosition = highPlayer && highPlayer.elo <= target ? highPlayer.position : high;
+
+        while (low <= high) {
+            const middle = Math.floor((low + high) / 2);
+            const player = await fetchRankingPlayerAtPosition(region, middle);
+
+            if (!player) {
+                high = middle - 1;
+                continue;
+            }
+
+            if (player.elo <= target) {
+                bestPosition = player.position || middle;
+                high = middle - 1;
+            } else {
+                low = middle + 1;
+            }
+        }
+
+        return bestPosition;
+    };
+
     const calculateMatchAverages = (matches) => {
         if (!matches.length) {
             return {
@@ -826,15 +890,23 @@ export default async function handler(request, response) {
         const playerData = await playerResponse.json();
         const playerId = playerData.player_id;
         const region = playerData.games?.cs2?.region || 'EU';
+        const realCurrentLevel = playerData.games?.cs2?.skill_level || 0;
+        const realCurrentElo = playerData.games?.cs2?.faceit_elo || 0;
+        const currentElo = addElo !== null ? Math.max(0, realCurrentElo + addElo) : realCurrentElo;
+        const currentLevel = addElo !== null ? getLevelFromElo(currentElo) : realCurrentLevel;
 
         log('info', 'player:loaded', {
             playerId,
             region,
-            elo: playerData.games?.cs2?.faceit_elo || 0,
-            level: playerData.games?.cs2?.skill_level || 0
+            elo: realCurrentElo,
+            level: realCurrentLevel,
+            displayElo: currentElo,
+            displayLevel: currentLevel,
+            addElo
         });
 
         let regionRanking = null;
+        let realRegionRanking = null;
         let regionRankingItems = [];
         let nextRankingTarget = null;
         let rankProgress = [];
@@ -846,6 +918,7 @@ export default async function handler(request, response) {
             if (rankingResponse.ok) {
                 const rankingData = await rankingResponse.json();
                 regionRanking = rankingData.position;
+                realRegionRanking = rankingData.position;
                 regionRankingItems = rankingData.items || [];
             } else {
                 log('warn', 'ranking:failed', {
@@ -861,7 +934,34 @@ export default async function handler(request, response) {
             });
         }
 
-        if ((playerData.games?.cs2?.skill_level || 0) >= 10 && regionRanking) {
+        if (addElo !== null) {
+            try {
+                const virtualRanking = await getVirtualRankByElo(region, currentElo, realRegionRanking || regionRanking);
+
+                if (virtualRanking) {
+                    regionRanking = virtualRanking;
+                    log('info', 'ranking:virtual-loaded', {
+                        realPosition: realRegionRanking,
+                        virtualPosition: regionRanking,
+                        currentElo,
+                        addElo
+                    });
+                } else {
+                    log('warn', 'ranking:virtual-missing', {
+                        realPosition: realRegionRanking,
+                        currentElo,
+                        addElo
+                    });
+                }
+            } catch (e) {
+                log('error', 'ranking:virtual-error', {
+                    message: e.message,
+                    stack: e.stack
+                });
+            }
+        }
+
+        if (currentLevel >= 10 && regionRanking) {
             try {
                 const targetPosition = regionRanking > 1000 ? 1000 : Math.max(regionRanking - 1, 1);
                 const targetFromPlayerRanking = regionRankingItems.find(item => item.position === targetPosition);
@@ -877,32 +977,22 @@ export default async function handler(request, response) {
                         };
                     }
                 } else {
-                    const targetOffset = Math.max(targetPosition - 1, 0);
-                    const nextRankResponse = await fetchWithAuth(
-                        `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${targetOffset}&limit=1`
-                    );
+                    const targetPlayer = await fetchRankingPlayerAtPosition(region, targetPosition);
 
-                    if (!nextRankResponse.ok) {
-                        const bodyPreview = await nextRankResponse.text().catch(() => '');
+                    if (!targetPlayer) {
                         log('warn', 'ranking:next-target-failed', {
-                            status: nextRankResponse.status,
-                            statusText: nextRankResponse.statusText,
                             region,
                             regionRanking,
-                            targetPosition,
-                            bodyPreview: bodyPreview.slice(0, 300)
+                            targetPosition
                         });
                     } else {
-                        const nextRankData = await nextRankResponse.json();
-                        const rankingItems = nextRankData.items || [];
-                        const targetPlayer = rankingItems.find(item => item.position === targetPosition) || rankingItems[0];
-                        const targetElo = getRankingPlayerElo(targetPlayer);
+                        const targetElo = targetPlayer.elo;
 
                         if (targetPlayer && targetElo) {
                             nextRankingTarget = {
-                                position: targetPlayer.position || targetPosition,
+                                position: targetPlayer.position,
                                 elo: targetElo,
-                                nickname: getRankingPlayerNickname(targetPlayer)
+                                nickname: targetPlayer.nickname
                             };
                         }
                     }
@@ -930,17 +1020,14 @@ export default async function handler(request, response) {
             }
         }
 
-        if ((playerData.games?.cs2?.skill_level || 0) >= 10 && regionRanking) {
-            const currentElo = playerData.games?.cs2?.faceit_elo || 0;
+        if (currentLevel >= 10 && regionRanking) {
             const rankTargets = [1000, 500, 100, 10].filter(position => regionRanking > position);
 
             rankProgress = await Promise.all(rankTargets.map(async (position) => {
                 try {
-                    const targetResponse = await fetchWithAuth(
-                        `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${position - 1}&limit=1`
-                    );
+                    const targetPlayer = await fetchRankingPlayerAtPosition(region, position);
 
-                    if (!targetResponse.ok) {
+                    if (!targetPlayer) {
                         return {
                             target_top: position,
                             available: false,
@@ -950,16 +1037,12 @@ export default async function handler(request, response) {
                         };
                     }
 
-                    const targetData = await targetResponse.json();
-                    const targetPlayer = targetData.items?.[0];
-                    const targetElo = getRankingPlayerElo(targetPlayer);
-
                     return {
                         target_top: position,
-                        available: Boolean(targetPlayer && targetElo),
-                        elo_needed: targetElo ? (targetElo >= currentElo ? targetElo - currentElo + 1 : 0) : null,
-                        target_elo: targetElo || null,
-                        target_nickname: getRankingPlayerNickname(targetPlayer)
+                        available: Boolean(targetPlayer && targetPlayer.elo),
+                        elo_needed: targetPlayer.elo ? (targetPlayer.elo >= currentElo ? targetPlayer.elo - currentElo + 1 : 0) : null,
+                        target_elo: targetPlayer.elo || null,
+                        target_nickname: targetPlayer.nickname
                     };
                 } catch (e) {
                     log('error', 'ranking:progress-error', {
@@ -1153,6 +1236,7 @@ export default async function handler(request, response) {
                             result: isWin ? 'WIN' : 'LOSE',
                             score: formatScore(match.i18),
                             map: match.i1 || 'Unknown',
+                            elo: match.eloValue || null,
                             elo_change: eloChange > 0 ? `+${eloChange}` : eloChange.toString(),
                             kills: match.i6 || 0,
                             deaths: match.i8 || 0,
@@ -1352,6 +1436,26 @@ export default async function handler(request, response) {
             });
         }
 
+        const applyAddEloToAbsolute = (value) => {
+            const parsed = parseInt(value || 0);
+            return addElo !== null && parsed ? Math.max(0, parsed + addElo) : parsed;
+        };
+
+        if (addElo !== null) {
+            todayMatches.start_elo = applyAddEloToAbsolute(todayMatches.start_elo);
+            todayMatches.end_elo = currentElo;
+            allMatchesDetailed = allMatchesDetailed.map(match => ({
+                ...match,
+                real_elo: match.elo,
+                elo: applyAddEloToAbsolute(match.elo)
+            }));
+            todayMatchesDetailed = todayMatchesDetailed.map(match => ({
+                ...match,
+                real_elo: match.elo ?? null,
+                elo: match.elo ? applyAddEloToAbsolute(match.elo) : null
+            }));
+        }
+
         if (historyResponse.ok) {
             const historyData = await historyResponse.json();
             const statsByMatchId = new Map(lastMatches.map(match => [match.match_id, match]));
@@ -1408,10 +1512,6 @@ export default async function handler(request, response) {
             lastMatchesCount: lastMatches.length
         });
 
-        const realCurrentLevel = playerData.games?.cs2?.skill_level || 0;
-        const realCurrentElo = playerData.games?.cs2?.faceit_elo || 0;
-        const currentElo = addElo !== null ? Math.max(0, realCurrentElo + addElo) : realCurrentElo;
-        const currentLevel = addElo !== null ? getLevelFromElo(currentElo) : realCurrentLevel;
         const last5Matches = lastMatches.slice(0, 5);
         const last10Matches = lastMatches.slice(0, 10);
         const todayStrForSession = new Date().toLocaleDateString('ru-RU');
@@ -1439,7 +1539,7 @@ export default async function handler(request, response) {
             last5_elo: last5EloChange > 0 ? `+${last5EloChange}` : last5EloChange.toString(),
             current_streak: getCurrentStreak(lastMatches)
         };
-        const nextLevel = getNextLevelProgress(currentElo, currentLevel, addElo !== null ? null : nextRankingTarget);
+        const nextLevel = getNextLevelProgress(currentElo, currentLevel, nextRankingTarget);
         const maps = getMapSummaries(statsData.segments);
         const mapRecommendation = {
             pick: maps.recommended[0] || null,
@@ -1505,23 +1605,24 @@ export default async function handler(request, response) {
         }
         const commandBaseUrl = `${request.headers['x-forwarded-proto'] || 'https'}://${request.headers.host || 'faceitapi.vercel.app'}/api/faceit`;
         const widgetBaseUrl = commandBaseUrl.replace('/api/faceit', '/api/widget');
+        const addEloQuery = addElo !== null ? `&addelo=${encodeURIComponent(addElo)}` : '';
         const makeStreamElementsCommand = (preset) =>
-            `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=${preset})'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`;
+            `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=${preset}${addEloQuery})'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`;
         const makeNightbotAddcom = (command, preset) =>
-            `!addcom !${command} $(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=${preset})'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`;
+            `!addcom !${command} $(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=${preset}${addEloQuery})'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`;
         const commandExamples = {
             streamelements_elo: makeStreamElementsCommand('elo'),
             streamelements_last: makeStreamElementsCommand('last'),
             streamelements_stats: makeStreamElementsCommand('stats'),
-            direct_elo: `${commandBaseUrl}?nick=${encodeURIComponent(nickname)}&preset=elo`,
-            direct_widget: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}`,
+            direct_elo: `${commandBaseUrl}?nick=${encodeURIComponent(nickname)}&preset=elo${addEloQuery}`,
+            direct_widget: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}${addEloQuery}`,
             widgets: {
-                main: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}`,
-                last: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=last`,
-                maps: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=maps`,
-                form: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=form`,
-                rank: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=rank`,
-                premades: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=premades`
+                main: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}${addEloQuery}`,
+                last: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=last${addEloQuery}`,
+                maps: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=maps${addEloQuery}`,
+                form: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=form${addEloQuery}`,
+                rank: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=rank${addEloQuery}`,
+                premades: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=premades${addEloQuery}`
             },
             nightbot_addcom: {
                 elo: makeNightbotAddcom('elo', 'elo'),
@@ -1582,6 +1683,7 @@ export default async function handler(request, response) {
                 real_lvl: realCurrentLevel,
                 real_elo: realCurrentElo,
                 top: regionRanking,
+                real_top: realRegionRanking,
                 trend: last5MatchesTrend,
                 last_30_stats: {
                     matches: last30Stats.matches_count,
@@ -1624,7 +1726,8 @@ export default async function handler(request, response) {
                 real_faceit_elo: realCurrentElo,
                 region: playerData.games?.cs2?.region,
                 game_player_id: playerData.games?.cs2?.game_player_id,
-                region_ranking: regionRanking
+                region_ranking: regionRanking,
+                real_region_ranking: realRegionRanking
             },
             lifetime_stats: {
                 win_rate: statsData.lifetime['Win Rate %'],
