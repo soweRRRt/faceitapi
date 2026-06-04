@@ -77,11 +77,23 @@ export default async function handler(request, response) {
         10: 2001
     };
 
-    const getNextLevelProgress = (elo, level) => {
+    const getNextLevelProgress = (elo, level, rankingTarget = null) => {
         const currentLevel = parseInt(level || 0);
         const currentElo = parseInt(elo || 0);
 
         if (currentLevel >= 10) {
+            if (rankingTarget) {
+                return {
+                    current_level: currentLevel,
+                    next_level: "top",
+                    elo_needed: Math.max((rankingTarget.elo || currentElo) - currentElo, 0),
+                    next_level_elo: rankingTarget.elo || null,
+                    progress: null,
+                    target_top: rankingTarget.position || null,
+                    target_nickname: rankingTarget.nickname || null
+                };
+            }
+
             return {
                 current_level: currentLevel,
                 next_level: null,
@@ -104,6 +116,20 @@ export default async function handler(request, response) {
             next_level_elo: nextLevelElo,
             progress: `${Math.round(progress)}%`
         };
+    };
+
+    const getRankingPlayerElo = (rankingPlayer) => {
+        return parseInt(
+            rankingPlayer?.faceit_elo ??
+            rankingPlayer?.elo ??
+            rankingPlayer?.game_skill_level ??
+            rankingPlayer?.games?.cs2?.faceit_elo ??
+            0
+        ) || 0;
+    };
+
+    const getRankingPlayerNickname = (rankingPlayer) => {
+        return rankingPlayer?.nickname || rankingPlayer?.player?.nickname || rankingPlayer?.name || null;
     };
 
     const calculateMatchAverages = (matches) => {
@@ -226,6 +252,7 @@ export default async function handler(request, response) {
         });
 
         let regionRanking = null;
+        let nextRankingTarget = null;
         try {
             const rankingResponse = await fetchWithAuth(
                 `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}/players/${playerId}?offset=0&limit=1`
@@ -246,6 +273,50 @@ export default async function handler(request, response) {
                 message: e.message,
                 stack: e.stack
             });
+        }
+
+        if ((playerData.games?.cs2?.skill_level || 0) >= 10 && regionRanking && regionRanking > 1) {
+            try {
+                const nextRankOffset = Math.max(regionRanking - 2, 0);
+                const nextRankResponse = await fetchWithAuth(
+                    `https://open.faceit.com/data/v4/rankings/games/cs2/regions/${region}?offset=${nextRankOffset}&limit=2`
+                );
+
+                if (nextRankResponse.ok) {
+                    const nextRankData = await nextRankResponse.json();
+                    const rankingItems = nextRankData.items || [];
+                    const targetPosition = regionRanking - 1;
+                    const targetPlayer = rankingItems.find(item => item.position === targetPosition) || rankingItems[0];
+                    const targetElo = getRankingPlayerElo(targetPlayer);
+
+                    if (targetPlayer && targetElo) {
+                        nextRankingTarget = {
+                            position: targetPlayer.position || targetPosition,
+                            elo: targetElo,
+                            nickname: getRankingPlayerNickname(targetPlayer)
+                        };
+                    }
+
+                    log('info', 'ranking:next-target-loaded', {
+                        currentPosition: regionRanking,
+                        targetPosition,
+                        targetElo: nextRankingTarget?.elo || null,
+                        targetNickname: nextRankingTarget?.nickname || null
+                    });
+                } else {
+                    log('warn', 'ranking:next-target-failed', {
+                        status: nextRankResponse.status,
+                        statusText: nextRankResponse.statusText,
+                        region,
+                        regionRanking
+                    });
+                }
+            } catch (e) {
+                log('error', 'ranking:next-target-error', {
+                    message: e.message,
+                    stack: e.stack
+                });
+            }
         }
 
         const todayMatches = {
@@ -646,7 +717,7 @@ export default async function handler(request, response) {
             last10_winrate: last10Stats.winrate,
             current_streak: getCurrentStreak(lastMatches)
         };
-        const nextLevel = getNextLevelProgress(currentElo, currentLevel);
+        const nextLevel = getNextLevelProgress(currentElo, currentLevel, nextRankingTarget);
         const maps = getMapSummaries(statsData.segments);
         const bestMapText = maps.best
             ? `${maps.best.name}: ${maps.best.winrate} WR, ${maps.best.kd} KD, ${maps.best.adr} ADR`
@@ -655,12 +726,13 @@ export default async function handler(request, response) {
             ? `${maps.worst.name}: ${maps.worst.winrate} WR, ${maps.worst.kd} KD, ${maps.worst.adr} ADR`
             : "No map data";
         const todayShort = `${todayMatches.win}W/${todayMatches.lose}L ${todayMatches.elo}`;
-        const nextLevelText = nextLevel.next_level
+        const nextLevelText = nextLevel.next_level === "top"
+            ? `TOP #${regionRanking || 'N/A'} -> #${nextLevel.target_top || 'N/A'}: ${nextLevel.elo_needed} ELO left${nextLevel.target_nickname ? ` (${nextLevel.target_nickname})` : ''}`
+            : nextLevel.next_level
             ? `LVL ${nextLevel.current_level}->${nextLevel.next_level}: ${nextLevel.elo_needed} ELO left`
             : `LVL ${nextLevel.current_level}: max level`;
         const presets = {
             elo: `LVL: ${currentLevel}, ELO: ${currentElo} (#${regionRanking || 'N/A'}), TREND: ${last5MatchesTrend}, TODAY: ${todayMatches.elo}`,
-            checkelo: `LVL: ${currentLevel}, ELO: ${currentElo} (#${regionRanking || 'N/A'}), TREND: ${last5MatchesTrend}, TODAY: ${todayMatches.elo}`,
             today: `TODAY: ${todayMatches.count} MATCHES, ${todayMatches.win} W, ${todayMatches.lose} L, ${todayMatches.elo} ELO`,
             session: `SESSION: ${sessionStats.matches} MATCHES, ${sessionStats.wins} W, ${sessionStats.losses} L, ${sessionStats.winrate} WR, ${sessionStats.avg_kd} KD, ${sessionStats.avg_adr} ADR, ${todayMatches.elo} ELO`,
             last: allMatchesLastMatch || "No last match data",
