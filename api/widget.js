@@ -144,7 +144,7 @@ const getRows = (type, api) => {
         return [
             statCell('BEST STACK', best ? best.label : 'No premades data', 'accent'),
             statCellRaw('STACK WR', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)} WR` : 'N/A'),
-            statCell('STACK AVG', best ? `${best.avg_kills} K / ${best.avg_kd} KD` : 'N/A'),
+            statCell('STACK AVG', best ? `${best.avg_kills} AVG / ${best.avg_kd} KD` : 'N/A'),
             statCell('SOLO', solo ? `${solo.winrate} WR, ${solo.avg_kd} KD` : 'No solo games')
         ].join('');
     }
@@ -153,7 +153,7 @@ const getRows = (type, api) => {
         statCellRaw('W / L', wlValue(wins, losses)),
         statCell('WINRATE', `${wr} (${todayCount}M)`, wins >= losses ? 'win' : 'loss'),
         statCell('ELO DIFF', todayElo, signedClass(todayElo)),
-        statCell('AVG STATS', `${shortText(session.avg_kills, '0')} K / ${shortText(session.avg_kd, '0')} KD`)
+        statCell('AVG STATS', `${shortText(session.avg_kills, '0')} AVG / ${shortText(session.avg_kd, '0')} KD`)
     ].join('');
 };
 

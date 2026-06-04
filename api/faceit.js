@@ -334,6 +334,117 @@ export default async function handler(request, response) {
         return result;
     };
 
+    const extractPlayerId = (player) => {
+        return player?.player_id ||
+            player?.playerId ||
+            player?.id ||
+            player?.player_stats?.player_id ||
+            player?.player_stats?.['Player Id'] ||
+            null;
+    };
+
+    const extractPlayerNickname = (player) => {
+        return player?.nickname ||
+            player?.game_player_name ||
+            player?.name ||
+            player?.player_stats?.Nickname ||
+            player?.player_stats?.nickname ||
+            extractPlayerId(player);
+    };
+
+    const extractPlayerStats = (player) => {
+        const stats = player?.player_stats || player?.stats || {};
+
+        return {
+            kills: parseInt(stats.Kills || stats.kills || 0) || 0,
+            kd: parseFloat(stats['K/D Ratio'] || stats.kd_ratio || stats.KD || 0) || 0,
+            adr: parseFloat(stats.ADR || stats.adr || 0) || 0
+        };
+    };
+
+    const normalizePremadeGroups = (premade) => {
+        if (!premade) return [];
+
+        if (Array.isArray(premade)) {
+            if (premade.every(item => typeof item === 'string')) {
+                return [premade];
+            }
+
+            if (premade.every(Array.isArray)) {
+                return premade.map(group => group.map(String));
+            }
+
+            if (premade.every(item => typeof item === 'object')) {
+                return premade
+                    .map(group => {
+                        if (Array.isArray(group?.players)) return group.players;
+                        if (Array.isArray(group?.player_ids)) return group.player_ids;
+                        if (Array.isArray(group?.members)) return group.members;
+                        return [];
+                    })
+                    .filter(group => group.length)
+                    .map(group => group.map(String));
+            }
+        }
+
+        if (typeof premade === 'object') {
+            return Object.values(premade)
+                .filter(value => Array.isArray(value))
+                .map(group => group.map(item => typeof item === 'object' ? extractPlayerId(item) : item).filter(Boolean).map(String));
+        }
+
+        return [];
+    };
+
+    const getPlayerPartyValue = (player) => {
+        return player?.party_id ||
+            player?.partyId ||
+            player?.premade_id ||
+            player?.premadeId ||
+            player?.premade ||
+            player?.player_stats?.party_id ||
+            player?.player_stats?.premade_id ||
+            null;
+    };
+
+    const getPremadeTeammates = (team, playerId) => {
+        const players = team.players || team.roster || [];
+        const playerIds = players.map(extractPlayerId);
+        const explicitGroups = normalizePremadeGroups(team.premade);
+        const explicitPlayerGroup = explicitGroups.find(group => group.includes(playerId));
+
+        if (explicitPlayerGroup) {
+            return players.filter(player => {
+                const id = extractPlayerId(player);
+                return id && id !== playerId && explicitPlayerGroup.includes(id);
+            });
+        }
+
+        const currentPlayer = players.find(player => extractPlayerId(player) === playerId);
+        const currentParty = getPlayerPartyValue(currentPlayer);
+
+        if (currentParty && typeof currentParty !== 'boolean') {
+            return players.filter(player => {
+                const id = extractPlayerId(player);
+                return id && id !== playerId && getPlayerPartyValue(player) === currentParty;
+            });
+        }
+
+        const teamPremadeIsFullParty = team.premade === true || team.premade === 'true';
+        if (teamPremadeIsFullParty && playerIds.includes(playerId)) {
+            return players.filter(player => extractPlayerId(player) !== playerId);
+        }
+
+        return [];
+    };
+
+    const hasPremadeSignal = (team) => {
+        const players = team.players || team.roster || [];
+        return team.premade === true ||
+            normalizePremadeGroups(team.premade).length > 0 ||
+            players.some(player => getPlayerPartyValue(player));
+    };
+
     const calculatePremades = async (matches, playerId) => {
         const candidates = matches
             .filter(match => match.match_id)
@@ -349,11 +460,14 @@ export default async function handler(request, response) {
             losses: 0,
             kills: 0,
             kd: 0,
-            adr: 0
+            adr: 0,
+            mateKills: 0,
+            mateKd: 0,
+            mateAdr: 0
         };
 
         const matchDetails = await Promise.allSettled(candidates.map(async (match) => {
-            const detailResponse = await fetchWithAuth(`https://open.faceit.com/data/v4/matches/${match.match_id}`);
+            const detailResponse = await fetchWithAuth(`https://open.faceit.com/data/v4/matches/${match.match_id}/stats`);
 
             if (!detailResponse.ok) {
                 return null;
@@ -365,38 +479,49 @@ export default async function handler(request, response) {
             };
         }));
 
+        let matchesWithPremadeSignal = 0;
+
         for (const item of matchDetails) {
-            if (item.status !== 'fulfilled' || !item.value?.details?.teams) continue;
+            if (item.status !== 'fulfilled' || !item.value?.details?.rounds) continue;
 
             const { match, details } = item.value;
-            const factions = Object.values(details.teams || {});
-            const playerFaction = factions.find(team =>
-                (team.roster || []).some(player => player.player_id === playerId)
+            const teams = (details.rounds || []).flatMap(round => round.teams || []);
+            const playerTeam = teams.find(team =>
+                (team.players || team.roster || []).some(player => extractPlayerId(player) === playerId)
             );
 
-            if (!playerFaction) continue;
+            if (!playerTeam) continue;
+            if (!hasPremadeSignal(playerTeam)) continue;
 
-            const teammates = (playerFaction.roster || [])
-                .filter(player => player.player_id !== playerId)
+            const playerStats = extractPlayerStats((playerTeam.players || playerTeam.roster || []).find(player => extractPlayerId(player) === playerId));
+            const premadeTeammates = getPremadeTeammates(playerTeam, playerId);
+            const teammates = premadeTeammates
                 .map(player => ({
-                    id: player.player_id,
-                    nickname: player.nickname || player.game_player_name || player.player_id
+                    id: extractPlayerId(player),
+                    nickname: extractPlayerNickname(player),
+                    stats: extractPlayerStats(player)
                 }))
+                .filter(player => player.id)
                 .sort((a, b) => a.nickname.localeCompare(b.nickname));
 
             const isWin = normalizeResult(match.result) === 'WIN';
             const addStats = (entry) => {
                 entry.matches++;
                 isWin ? entry.wins++ : entry.losses++;
-                entry.kills += parseInt(match.kills || 0);
-                entry.kd += parseFloat(match.kd_ratio || 0);
-                entry.adr += parseFloat(match.adr || 0);
+                entry.kills += playerStats.kills || parseInt(match.kills || 0);
+                entry.kd += playerStats.kd || parseFloat(match.kd_ratio || 0);
+                entry.adr += playerStats.adr || parseFloat(match.adr || 0);
+                entry.mateKills += entry.currentComboStats?.kills || 0;
+                entry.mateKd += entry.currentComboStats?.kd || 0;
+                entry.mateAdr += entry.currentComboStats?.adr || 0;
             };
 
             if (!teammates.length) {
                 addStats(solo);
                 continue;
             }
+
+            matchesWithPremadeSignal++;
 
             for (const combo of getCombinations(teammates)) {
                 const key = combo.map(player => player.id).join('|');
@@ -411,11 +536,21 @@ export default async function handler(request, response) {
                         losses: 0,
                         kills: 0,
                         kd: 0,
-                        adr: 0
+                        adr: 0,
+                        mateKills: 0,
+                        mateKd: 0,
+                        mateAdr: 0
                     });
                 }
 
-                addStats(premadeMap.get(key));
+                const entry = premadeMap.get(key);
+                entry.currentComboStats = {
+                    kills: combo.reduce((sum, player) => sum + player.stats.kills, 0) / combo.length,
+                    kd: combo.reduce((sum, player) => sum + player.stats.kd, 0) / combo.length,
+                    adr: combo.reduce((sum, player) => sum + player.stats.adr, 0) / combo.length
+                };
+                addStats(entry);
+                delete entry.currentComboStats;
             }
         }
 
@@ -424,6 +559,9 @@ export default async function handler(request, response) {
             const avgKills = entry.matches ? entry.kills / entry.matches : 0;
             const avgKd = entry.matches ? entry.kd / entry.matches : 0;
             const avgAdr = entry.matches ? entry.adr / entry.matches : 0;
+            const teammateAvgKills = entry.matches ? entry.mateKills / entry.matches : 0;
+            const teammateAvgKd = entry.matches ? entry.mateKd / entry.matches : 0;
+            const teammateAvgAdr = entry.matches ? entry.mateAdr / entry.matches : 0;
             const score = winrate * 0.9 +
                 entry.matches * 3 +
                 entry.wins * 1.5 -
@@ -431,6 +569,9 @@ export default async function handler(request, response) {
                 avgKills * 0.8 +
                 avgKd * 12 +
                 avgAdr * 0.12 +
+                teammateAvgKills * 0.35 +
+                teammateAvgKd * 6 +
+                teammateAvgAdr * 0.06 +
                 entry.size;
 
             return {
@@ -444,6 +585,9 @@ export default async function handler(request, response) {
                 avg_kills: avgKills.toFixed(0),
                 avg_kd: avgKd.toFixed(2),
                 avg_adr: avgAdr.toFixed(2),
+                teammate_avg_kills: teammateAvgKills.toFixed(0),
+                teammate_avg_kd: teammateAvgKd.toFixed(2),
+                teammate_avg_adr: teammateAvgAdr.toFixed(2),
                 score: Number(score.toFixed(2))
             };
         };
@@ -455,7 +599,8 @@ export default async function handler(request, response) {
 
         return {
             sample_matches: candidates.length,
-            formula: "WR*0.9 + MATCHES*3 + WINS*1.5 - LOSSES + AVG_KILLS*0.8 + AVG_KD*12 + AVG_ADR*0.12 + STACK_SIZE",
+            matches_with_premade_signal: matchesWithPremadeSignal,
+            formula: "WR*0.9 + MATCHES*3 + WINS*1.5 - LOSSES + YOUR_AVG*0.8 + YOUR_KD*12 + YOUR_ADR*0.12 + MATE_AVG*0.35 + MATE_KD*6 + MATE_ADR*0.06 + STACK_SIZE",
             best: groups[0] || null,
             top: groups.slice(0, 5),
             solo: solo.matches ? finalize(solo) : null
