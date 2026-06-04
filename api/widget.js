@@ -27,6 +27,11 @@ const shortText = (value, fallback = 'N/A') => {
     return text || fallback;
 };
 
+const stripWidgetPrefixes = (value) => shortText(value)
+    .replace(/^BEST TODAY:\s*/i, '')
+    .replace(/^PEAK TODAY:\s*/i, '')
+    .replace(/^TODAY:\s*/i, '');
+
 const getLevelBadge = (level, top) => {
     const lvl = asNumber(level);
     const rank = asNumber(top, null);
@@ -37,9 +42,11 @@ const getLevelBadge = (level, top) => {
     const icon = challenger ? FACEIT_LEVEL_ICONS.challenger : FACEIT_LEVEL_ICONS[lvl];
 
     return `
-        <div class="level-badge ${challenger ? 'challenger' : ''}${podium}">
-            ${icon ? `<img src="${escapeAttr(icon)}" alt="">` : ''}
-            <span>${escapeHtml(label)}</span>
+        <div class="level-wrap ${challenger ? 'challenger' : ''}${podium}">
+            <div class="level-badge">
+                ${icon ? `<img src="${escapeAttr(icon)}" alt="">` : ''}
+            </div>
+            <div class="level-text">${escapeHtml(label)}</div>
             <small>${escapeHtml(sub)}</small>
         </div>
     `;
@@ -51,6 +58,15 @@ const statCell = (label, value, className = '') => `
         <div class="value">${escapeHtml(value)}</div>
     </div>
 `;
+
+const statCellRaw = (label, value, className = '') => `
+    <div class="cell ${className}">
+        <div class="label">${escapeHtml(label)}</div>
+        <div class="value">${value}</div>
+    </div>
+`;
+
+const wlValue = (wins, losses) => `<span class="win-text">${escapeHtml(wins)}W</span>/<span class="loss-text">${escapeHtml(losses)}L</span>`;
 
 const FACEIT_LEVEL_ICONS = {
     1: 'https://support.faceit.com/hc/article_attachments/11345678874012',
@@ -83,17 +99,17 @@ const getRows = (type, api) => {
 
     if (type === 'last') {
         return [
-            statCell('LAST MATCH', lastMatch, lastMatch.toLowerCase().includes('victory') ? 'win' : lastMatch.toLowerCase().includes('defeat') ? 'loss' : ''),
-            statCell('TODAY REPORT', shortText(today.report || api.report, 'No report')),
-            statCell('BEST TODAY', shortText(presets.best_match_today, 'No matches today'))
+            statCell('MATCH', lastMatch, lastMatch.toLowerCase().includes('victory') ? 'win' : lastMatch.toLowerCase().includes('defeat') ? 'loss' : ''),
+            statCell('REPORT', shortText(today.report || api.report, 'No report')),
+            statCell('BEST GAME', stripWidgetPrefixes(presets.best_match_today || 'No matches'))
         ].join('');
     }
 
     if (type === 'maps') {
         return [
             statCell('MAP PICK', mapPick ? `PICK: ${mapPick.name} (${mapPick.winrate} WR)` : shortText(presets.map_pick, 'No map data'), 'accent'),
-            statCell('BEST MAP', maps.best ? `${maps.best.name} (${maps.best.score})` : shortText(presets.best_map, 'N/A'), 'win'),
-            statCell('WORST MAP', maps.worst ? `${maps.worst.name} (${maps.worst.score})` : shortText(presets.worst_map, 'N/A'), 'loss')
+            statCell('BEST', maps.best ? `${maps.best.name}: ${maps.best.winrate}, ${maps.best.kd} KD` : shortText(presets.best_map, 'N/A'), 'win'),
+            statCell('AVOID', maps.worst ? `${maps.worst.name}: ${maps.worst.winrate}, ${maps.worst.kd} KD` : shortText(presets.worst_map, 'N/A'), 'loss')
         ].join('');
     }
 
@@ -101,7 +117,7 @@ const getRows = (type, api) => {
         return [
             statCell('FORM', shortText(form.last5 || api.trend), 'accent'),
             statCell('STREAK', shortText(form.current_streak, 'N/A')),
-            statCell('LAST 10 WR', shortText(form.last10_winrate, '0%')),
+            statCell('10 MATCH WR', shortText(form.last10_winrate, '0%')),
             statCell('TILT', shortText(presets.tilt, 'N/A'))
         ].join('');
     }
@@ -116,15 +132,28 @@ const getRows = (type, api) => {
         return [
             statCell('NEXT', target, 'accent'),
             statCell('PROGRESS', shortText(presets.rank_progress, shortText(presets.next_level))),
-            statCell('PEAK TODAY', shortText(presets.peak_today, 'N/A'))
+            statCell('PEAK', stripWidgetPrefixes(presets.peak_today || 'N/A'))
+        ].join('');
+    }
+
+    if (type === 'premades') {
+        const premades = api.premades || {};
+        const best = premades.best;
+        const solo = premades.solo;
+
+        return [
+            statCell('BEST STACK', best ? best.label : 'No premades data', 'accent'),
+            statCellRaw('STACK WR', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)} WR` : 'N/A'),
+            statCell('STACK AVG', best ? `${best.avg_kills} K / ${best.avg_kd} KD` : 'N/A'),
+            statCell('SOLO', solo ? `${solo.winrate} WR, ${solo.avg_kd} KD` : 'No solo games')
         ].join('');
     }
 
     return [
-        statCell('TODAY', `${wins}W/${losses}L`, wins >= losses ? 'win' : 'loss'),
-        statCell('TODAY ELO', todayElo, signedClass(todayElo)),
-        statCell('SESSION', `${shortText(session.avg_kd, '0')} KD / ${shortText(session.avg_adr, '0')} ADR`),
-        statCell('TODAY WR', `${wr} (${todayCount}M)`, wins >= losses ? 'win' : 'loss')
+        statCellRaw('W / L', wlValue(wins, losses)),
+        statCell('WINRATE', `${wr} (${todayCount}M)`, wins >= losses ? 'win' : 'loss'),
+        statCell('ELO DIFF', todayElo, signedClass(todayElo)),
+        statCell('AVG STATS', `${shortText(session.avg_kills, '0')} K / ${shortText(session.avg_kd, '0')} KD`)
     ].join('');
 };
 
@@ -177,7 +206,7 @@ const renderWidget = ({ data, type, theme, refresh }) => {
     }
     .head {
         display: grid;
-        grid-template-columns: 72px 52px minmax(0, 1fr) auto;
+        grid-template-columns: 72px 56px minmax(0, 1fr) auto;
         gap: 12px;
         align-items: center;
         padding: 8px 14px 10px 8px;
@@ -190,18 +219,24 @@ const renderWidget = ({ data, type, theme, refresh }) => {
         object-fit: cover;
         background: #202633;
     }
-    .level-badge {
-        position: relative;
-        width: 48px;
-        height: 48px;
-        display: block;
-        border-radius: 8px;
+    .level-wrap {
+        width: 54px;
+        display: grid;
+        justify-items: center;
+        gap: 2px;
         color: white;
-        background: rgba(12, 15, 20, .35);
-        border: 1px solid rgba(255,255,255,.14);
-        text-align: center;
         font-weight: 900;
         line-height: 1;
+        text-align: center;
+    }
+    .level-badge {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        display: block;
+        border-radius: 8px;
+        background: rgba(12, 15, 20, .35);
+        border: 1px solid rgba(255,255,255,.14);
         box-shadow: inset 0 0 0 1px rgba(0,0,0,.24);
         overflow: hidden;
     }
@@ -213,25 +248,20 @@ const renderWidget = ({ data, type, theme, refresh }) => {
         object-fit: contain;
         padding: 2px;
     }
-    .level-badge span {
-        position: absolute;
-        left: 3px;
-        right: 3px;
-        bottom: 4px;
-        padding: 2px 3px;
-        border-radius: 5px;
-        background: rgba(0, 0, 0, .58);
+    .level-text {
+        width: 54px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-size: 10px;
     }
-    .level-badge small { display: none; }
-    .level-badge.challenger span {
-        bottom: 3px;
+    .level-wrap small { display: none; }
+    .level-wrap.challenger .level-text {
         color: #fff4cc;
-        background: rgba(0, 0, 0, .68);
     }
-    .level-badge.top1 { border-color: #ffd45a; box-shadow: 0 0 16px rgba(255, 191, 0, .55), inset 0 0 0 1px rgba(0,0,0,.24); }
-    .level-badge.top2 { border-color: #dce7f6; box-shadow: 0 0 14px rgba(207, 221, 238, .45), inset 0 0 0 1px rgba(0,0,0,.24); }
-    .level-badge.top3 { border-color: #d99b6c; box-shadow: 0 0 14px rgba(216, 135, 76, .45), inset 0 0 0 1px rgba(0,0,0,.24); }
+    .level-wrap.top1 .level-badge { border-color: #ffd45a; box-shadow: 0 0 16px rgba(255, 191, 0, .55), inset 0 0 0 1px rgba(0,0,0,.24); }
+    .level-wrap.top2 .level-badge { border-color: #dce7f6; box-shadow: 0 0 14px rgba(207, 221, 238, .45), inset 0 0 0 1px rgba(0,0,0,.24); }
+    .level-wrap.top3 .level-badge { border-color: #d99b6c; box-shadow: 0 0 14px rgba(216, 135, 76, .45), inset 0 0 0 1px rgba(0,0,0,.24); }
     .name { min-width: 0; }
     .nick {
         display: flex;
@@ -243,15 +273,6 @@ const renderWidget = ({ data, type, theme, refresh }) => {
         letter-spacing: 0;
     }
     .nick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tag {
-        flex: 0 0 auto;
-        padding: 4px 7px;
-        border-radius: 6px;
-        background: var(--accent);
-        color: white;
-        font-size: 12px;
-        font-weight: 900;
-    }
     .next {
         margin-top: 6px;
         color: var(--muted);
@@ -268,6 +289,11 @@ const renderWidget = ({ data, type, theme, refresh }) => {
         grid-template-columns: repeat(4, minmax(0, 1fr));
         border-top: 1px solid var(--line);
         background: var(--panel);
+    }
+    .type-last .grid,
+    .type-maps .grid,
+    .type-rank .grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .cell {
         min-width: 0;
@@ -294,13 +320,16 @@ const renderWidget = ({ data, type, theme, refresh }) => {
     .loss .value { color: var(--red); }
     .accent .value { color: var(--accent); }
     .muted .value { color: var(--muted); }
+    .win-text { color: var(--green); }
+    .loss-text { color: var(--red); }
     @media (max-width: 520px) {
         .widget { border-radius: 0; }
-        .head { grid-template-columns: 58px 44px minmax(0, 1fr) auto; gap: 9px; min-height: 78px; padding: 7px 10px 8px 7px; }
+        .head { grid-template-columns: 58px 48px minmax(0, 1fr) auto; gap: 9px; min-height: 78px; padding: 7px 10px 8px 7px; }
         .avatar { width: 54px; height: 54px; }
-        .level-badge { width: 42px; height: 42px; }
+        .level-wrap { width: 46px; }
+        .level-badge { width: 40px; height: 40px; }
+        .level-text { width: 46px; font-size: 9px; }
         .nick { font-size: 19px; }
-        .tag { display: none; }
         .next { font-size: 11px; }
         .elo strong { font-size: 25px; }
         .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -310,12 +339,12 @@ const renderWidget = ({ data, type, theme, refresh }) => {
 </style>
 </head>
 <body class="${escapeAttr(theme)}">
-<main class="widget">
+<main class="widget type-${escapeAttr(type)}">
     <section class="head">
         <img class="avatar" src="${escapeAttr(avatar)}" alt="">
         ${getLevelBadge(level, top)}
         <div class="name">
-            <div class="nick"><span>${escapeHtml(nick)}</span><b class="tag">LVL ${escapeHtml(level)}</b></div>
+            <div class="nick"><span>${escapeHtml(nick)}</span></div>
             <div class="next">${escapeHtml(next)}</div>
         </div>
         <div class="elo">
@@ -338,7 +367,7 @@ export default async function handler(request, response) {
     const { nick, theme = 'dark' } = request.query;
     const type = String(request.query.type || request.query.widget || 'summary').toLowerCase();
     const refresh = Math.max(30, Math.min(600, asNumber(request.query.refresh, DEFAULT_REFRESH_SECONDS)));
-    const allowedTypes = new Set(['summary', 'last', 'maps', 'form', 'rank']);
+    const allowedTypes = new Set(['summary', 'last', 'maps', 'form', 'rank', 'premades']);
     const normalizedType = allowedTypes.has(type) ? type : 'summary';
     const normalizedTheme = theme === 'light' ? 'light' : 'dark';
 
@@ -351,7 +380,7 @@ export default async function handler(request, response) {
         const protocol = request.headers['x-forwarded-proto'] || 'https';
         const host = request.headers.host;
         const baseUrl = `${protocol}://${host}`;
-        const apiUrl = `${baseUrl}/api/faceit?nick=${encodeURIComponent(nick)}&full&compact`;
+        const apiUrl = `${baseUrl}/api/faceit?nick=${encodeURIComponent(nick)}&full&compact${normalizedType === 'premades' ? '&premades=true' : ''}`;
         const apiResponse = await fetch(apiUrl);
         const contentType = apiResponse.headers.get('content-type') || '';
 

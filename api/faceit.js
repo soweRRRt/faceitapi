@@ -5,6 +5,7 @@ export default async function handler(request, response) {
     const { nick: nickname, view: viewTemplate, preset: presetName } = request.query;
     const fullMode = 'full' in request.query;
     const compactMode = 'compact' in request.query;
+    const premadesMode = 'premades' in request.query || presetName === 'premades';
     const { FACEIT_API_KEY, DEEP_FACEIT_API_KEY } = process.env;
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -309,6 +310,155 @@ export default async function handler(request, response) {
             worst: sortedByWorst[0] || null,
             recommended: sortedByBest.slice(0, 3),
             all: maps
+        };
+    };
+
+    const getCombinations = (items) => {
+        const result = [];
+
+        for (let size = 1; size <= items.length; size++) {
+            const walk = (start, combo) => {
+                if (combo.length === size) {
+                    result.push(combo);
+                    return;
+                }
+
+                for (let index = start; index < items.length; index++) {
+                    walk(index + 1, [...combo, items[index]]);
+                }
+            };
+
+            walk(0, []);
+        }
+
+        return result;
+    };
+
+    const calculatePremades = async (matches, playerId) => {
+        const candidates = matches
+            .filter(match => match.match_id)
+            .slice(0, 50);
+
+        const premadeMap = new Map();
+        const solo = {
+            key: 'solo',
+            players: [],
+            size: 0,
+            matches: 0,
+            wins: 0,
+            losses: 0,
+            kills: 0,
+            kd: 0,
+            adr: 0
+        };
+
+        const matchDetails = await Promise.allSettled(candidates.map(async (match) => {
+            const detailResponse = await fetchWithAuth(`https://open.faceit.com/data/v4/matches/${match.match_id}`);
+
+            if (!detailResponse.ok) {
+                return null;
+            }
+
+            return {
+                match,
+                details: await detailResponse.json()
+            };
+        }));
+
+        for (const item of matchDetails) {
+            if (item.status !== 'fulfilled' || !item.value?.details?.teams) continue;
+
+            const { match, details } = item.value;
+            const factions = Object.values(details.teams || {});
+            const playerFaction = factions.find(team =>
+                (team.roster || []).some(player => player.player_id === playerId)
+            );
+
+            if (!playerFaction) continue;
+
+            const teammates = (playerFaction.roster || [])
+                .filter(player => player.player_id !== playerId)
+                .map(player => ({
+                    id: player.player_id,
+                    nickname: player.nickname || player.game_player_name || player.player_id
+                }))
+                .sort((a, b) => a.nickname.localeCompare(b.nickname));
+
+            const isWin = normalizeResult(match.result) === 'WIN';
+            const addStats = (entry) => {
+                entry.matches++;
+                isWin ? entry.wins++ : entry.losses++;
+                entry.kills += parseInt(match.kills || 0);
+                entry.kd += parseFloat(match.kd_ratio || 0);
+                entry.adr += parseFloat(match.adr || 0);
+            };
+
+            if (!teammates.length) {
+                addStats(solo);
+                continue;
+            }
+
+            for (const combo of getCombinations(teammates)) {
+                const key = combo.map(player => player.id).join('|');
+
+                if (!premadeMap.has(key)) {
+                    premadeMap.set(key, {
+                        key,
+                        players: combo.map(player => player.nickname),
+                        size: combo.length,
+                        matches: 0,
+                        wins: 0,
+                        losses: 0,
+                        kills: 0,
+                        kd: 0,
+                        adr: 0
+                    });
+                }
+
+                addStats(premadeMap.get(key));
+            }
+        }
+
+        const finalize = (entry) => {
+            const winrate = entry.matches ? (entry.wins / entry.matches) * 100 : 0;
+            const avgKills = entry.matches ? entry.kills / entry.matches : 0;
+            const avgKd = entry.matches ? entry.kd / entry.matches : 0;
+            const avgAdr = entry.matches ? entry.adr / entry.matches : 0;
+            const score = winrate * 0.9 +
+                entry.matches * 3 +
+                entry.wins * 1.5 -
+                entry.losses +
+                avgKills * 0.8 +
+                avgKd * 12 +
+                avgAdr * 0.12 +
+                entry.size;
+
+            return {
+                players: entry.players,
+                label: entry.players.length ? entry.players.join(' + ') : 'SOLO',
+                size: entry.size,
+                matches: entry.matches,
+                wins: entry.wins,
+                losses: entry.losses,
+                winrate: formatPercent(winrate),
+                avg_kills: avgKills.toFixed(0),
+                avg_kd: avgKd.toFixed(2),
+                avg_adr: avgAdr.toFixed(2),
+                score: Number(score.toFixed(2))
+            };
+        };
+
+        const groups = [...premadeMap.values()]
+            .filter(entry => entry.matches > 0)
+            .map(finalize)
+            .sort((a, b) => b.score - a.score || b.matches - a.matches || parseFloat(b.avg_kd) - parseFloat(a.avg_kd));
+
+        return {
+            sample_matches: candidates.length,
+            formula: "WR*0.9 + MATCHES*3 + WINS*1.5 - LOSSES + AVG_KILLS*0.8 + AVG_KD*12 + AVG_ADR*0.12 + STACK_SIZE",
+            best: groups[0] || null,
+            top: groups.slice(0, 5),
+            solo: solo.matches ? finalize(solo) : null
         };
     };
 
@@ -734,7 +884,7 @@ export default async function handler(request, response) {
         const statsData = await statsResponse.json();
 
         const matchesResponse = await fetchWithAuth(
-            `https://open.faceit.com/data/v4/players/${playerId}/games/cs2/stats?offset=0&limit=30`
+            `https://open.faceit.com/data/v4/players/${playerId}/games/cs2/stats?offset=0&limit=50`
         );
 
         const last30Stats = { wins: 0, losses: 0, matches_count: 0 };
@@ -919,13 +1069,43 @@ export default async function handler(request, response) {
             : null;
         const peakToday = getPeakToday(allMatchesDetailed, currentElo, todayStrForSession);
         const tiltMeter = getTiltMeter(lastMatches, allMatchesDetailed);
+        const premades = premadesMode ? await calculatePremades(lastMatches, playerId) : null;
         const commandBaseUrl = `${request.headers['x-forwarded-proto'] || 'https'}://${request.headers.host || 'faceitapi.vercel.app'}/api/faceit`;
+        const widgetBaseUrl = commandBaseUrl.replace('/api/faceit', '/api/widget');
+        const makeStreamElementsCommand = (preset) =>
+            `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=${preset})'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`;
+        const makeNightbotAddcom = (command, preset) =>
+            `!addcom !${command} $(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=${preset})'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`;
         const commandExamples = {
-            streamelements_elo: `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=elo)'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`,
-            streamelements_last: `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=last)'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`,
-            streamelements_stats: `$(eval const data = '$(customapi ${commandBaseUrl}?nick=$(querystring)&preset=stats)'; data.includes('500') || data.includes('Error') ? 'Player not found' : data)`,
+            streamelements_elo: makeStreamElementsCommand('elo'),
+            streamelements_last: makeStreamElementsCommand('last'),
+            streamelements_stats: makeStreamElementsCommand('stats'),
             direct_elo: `${commandBaseUrl}?nick=${encodeURIComponent(nickname)}&preset=elo`,
-            direct_widget: `${commandBaseUrl.replace('/api/faceit', '/api/widget')}?nick=${encodeURIComponent(nickname)}`
+            direct_widget: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}`,
+            widgets: {
+                main: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}`,
+                last: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=last`,
+                maps: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=maps`,
+                form: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=form`,
+                rank: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=rank`,
+                premades: `${widgetBaseUrl}?nick=${encodeURIComponent(nickname)}&type=premades`
+            },
+            nightbot_addcom: {
+                elo: makeNightbotAddcom('elo', 'elo'),
+                today: makeNightbotAddcom('today', 'today'),
+                session: makeNightbotAddcom('session', 'session'),
+                last: makeNightbotAddcom('last', 'last'),
+                report: makeNightbotAddcom('report', 'report'),
+                stats: makeNightbotAddcom('stats', 'stats'),
+                form: makeNightbotAddcom('form', 'form'),
+                next_level: makeNightbotAddcom('nextlevel', 'next_level'),
+                rank_progress: makeNightbotAddcom('rank', 'rank_progress'),
+                maps: makeNightbotAddcom('maps', 'maps'),
+                map_pick: makeNightbotAddcom('mappick', 'map_pick'),
+                peak_today: makeNightbotAddcom('peak', 'peak_today'),
+                best_match_today: makeNightbotAddcom('besttoday', 'best_match_today'),
+                tilt: makeNightbotAddcom('tilt', 'tilt')
+            }
         };
         const todayShort = `${todayMatches.win}W/${todayMatches.lose}L ${todayMatches.elo}`;
         const nextLevelText = nextLevel.next_level === "top" && nextLevel.available
@@ -952,6 +1132,7 @@ export default async function handler(request, response) {
             peak_today: `PEAK TODAY: ${peakToday.peak_elo} ELO (${peakToday.current_from_peak >= 0 ? '+' : ''}${peakToday.current_from_peak} from peak)`,
             best_match_today: bestMatchToday ? `BEST TODAY: ${bestMatchToday.result} ${bestMatchToday.score} ${getBeautifulMapName(bestMatchToday.map)} ${bestMatchToday.kills}/${bestMatchToday.assists}/${bestMatchToday.deaths}, ${bestMatchToday.kd_ratio} KD` : "No matches today",
             tilt: `TILT: ${tiltMeter.status.toUpperCase()} (${tiltMeter.score}/100), ${tiltMeter.last5_losses}L last 5, ${tiltMeter.last5_avg_kd} KD`,
+            premades: premades?.best ? `BEST PREMADE: ${premades.best.label}, ${premades.best.matches}M, ${premades.best.winrate} WR, ${premades.best.avg_kd} KD, ${premades.best.score} score` : "Premades data unavailable",
             avatar: playerData.avatar || "",
             cover: playerData.cover_image || "",
             fullbar: `LVL ${currentLevel} | ${currentElo} ELO | ${todayShort} | ${form.last5 || 'N/A'} | ${allMatchesLastMatch || 'No last match data'}`
@@ -984,6 +1165,7 @@ export default async function handler(request, response) {
                 peak_today: peakToday,
                 best_match_today: bestMatchToday,
                 tilt_meter: tiltMeter,
+                premades,
                 maps,
                 map_recommendation: mapRecommendation,
                 command_examples: commandExamples,
