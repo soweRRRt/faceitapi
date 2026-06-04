@@ -1306,10 +1306,14 @@ export default async function handler(request, response) {
         const sessionStats = calculateMatchAverages(sessionSourceMatches);
         const last5Stats = calculateMatchAverages(last5Matches);
         const last10Stats = calculateMatchAverages(last10Matches);
+        const last5EloChange = allMatchesDetailed
+            .slice(0, 5)
+            .reduce((sum, match) => sum + (parseInt(match.elo_change || 0) || 0), 0);
         const form = {
             last5: last5MatchesTrend,
             last5_winrate: last5Stats.winrate,
             last10_winrate: last10Stats.winrate,
+            last5_elo: last5EloChange > 0 ? `+${last5EloChange}` : last5EloChange.toString(),
             current_streak: getCurrentStreak(lastMatches)
         };
         const nextLevel = getNextLevelProgress(currentElo, currentLevel, nextRankingTarget);

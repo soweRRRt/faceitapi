@@ -110,7 +110,6 @@ const getRows = (type, api, data = {}) => {
     const session = api.session_stats || {};
     const form = api.form || {};
     const nextLevel = api.next_level || {};
-    const mapPick = api.map_recommendation?.pick;
     const maps = api.maps || {};
     const lastMatch = data.last_matches?.[0] || {};
     const todayElo = shortText(today.elo, '0');
@@ -134,9 +133,8 @@ const getRows = (type, api, data = {}) => {
 
     if (type === 'maps') {
         return [
-            statCell('PLAY', mapPick ? `${mapPick.name} ${mapPick.winrate}` : 'No map data', 'accent'),
-            statCell('BEST', maps.best ? `${maps.best.name}: ${maps.best.winrate}, ${maps.best.kd} KD` : 'N/A', 'win'),
-            statCell('AVOID', maps.worst ? `${maps.worst.name}: ${maps.worst.winrate}, ${maps.worst.kd} KD` : 'N/A', 'loss')
+            statCell('BEST MAP', maps.best ? `${maps.best.name}: ${maps.best.winrate}, ${maps.best.kd} KD, ${maps.best.avg_kills} AVG` : 'N/A', 'win'),
+            statCell('WORST MAP', maps.worst ? `${maps.worst.name}: ${maps.worst.winrate}, ${maps.worst.kd} KD, ${maps.worst.avg_kills} AVG` : 'N/A', 'loss')
         ].join('');
     }
 
@@ -145,7 +143,7 @@ const getRows = (type, api, data = {}) => {
             statCellRaw('FORM', formValue(form.last5 || api.trend || 'N/A'), 'accent'),
             statCell('STREAK', shortText(form.current_streak, 'N/A')),
             statCell('5 WR', shortText(form.last5_winrate, '0%')),
-            statCell('10 WR', shortText(form.last10_winrate, '0%'))
+            statCell('ELO 5', shortText(form.last5_elo, '0'), signedClass(form.last5_elo))
         ].join('');
     }
 
@@ -339,6 +337,9 @@ const renderWidget = ({ data, type, types, theme, refresh, rotate }) => {
     .grid.type-rank,
     .grid.type-premades {
         grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .grid.type-maps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .cell {
         min-width: 0;
