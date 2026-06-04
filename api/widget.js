@@ -67,6 +67,7 @@ const statCellRaw = (label, value, className = '') => `
 `;
 
 const wlValue = (wins, losses) => `<span class="win-text">${escapeHtml(wins)}W</span>/<span class="loss-text">${escapeHtml(losses)}L</span>`;
+const ALLOWED_TYPES = ['summary', 'last', 'maps', 'form', 'rank', 'premades'];
 
 const FACEIT_LEVEL_ICONS = {
     1: 'https://support.faceit.com/hc/article_attachments/11345678874012',
@@ -82,15 +83,28 @@ const FACEIT_LEVEL_ICONS = {
     challenger: 'https://support.faceit.com/hc/article_attachments/11345678886940'
 };
 
-const getRows = (type, api) => {
+const getHeaderNext = (api) => {
+    const nextLevel = api.next_level || {};
+
+    if (nextLevel.next_level === 'top' && nextLevel.available) {
+        return `TOP #${api.top || 'N/A'} -> #${nextLevel.target_top || 'N/A'}: +${nextLevel.elo_needed ?? 'N/A'} ELO`;
+    }
+
+    if (nextLevel.next_level) {
+        return `LVL ${nextLevel.current_level}->${nextLevel.next_level}: +${nextLevel.elo_needed ?? 'N/A'} ELO`;
+    }
+
+    return api.trend ? `FORM ${api.trend}` : '';
+};
+
+const getRows = (type, api, data = {}) => {
     const today = api.today || {};
     const session = api.session_stats || {};
     const form = api.form || {};
     const nextLevel = api.next_level || {};
     const mapPick = api.map_recommendation?.pick;
     const maps = api.maps || {};
-    const lastMatch = shortText(api.last_match, 'No last match');
-    const presets = api.presets || {};
+    const lastMatch = data.last_matches?.[0] || {};
     const todayElo = shortText(today.elo, '0');
     const wins = asNumber(today.win);
     const losses = asNumber(today.lose);
@@ -98,27 +112,33 @@ const getRows = (type, api) => {
     const wr = todayCount ? `${Math.round((wins / todayCount) * 100)}%` : '0%';
 
     if (type === 'last') {
+        const isWin = lastMatch.result === '1' || String(api.last_match || '').toLowerCase().includes('victory');
+        const result = lastMatch.result ? (isWin ? 'WIN' : 'LOSS') : 'N/A';
+        const score = lastMatch.score || 'N/A';
+        const map = (lastMatch.map || '').replace('de_', '') || 'N/A';
+
         return [
-            statCell('MATCH', lastMatch, lastMatch.toLowerCase().includes('victory') ? 'win' : lastMatch.toLowerCase().includes('defeat') ? 'loss' : ''),
-            statCell('REPORT', shortText(today.report || api.report, 'No report')),
-            statCell('BEST GAME', stripWidgetPrefixes(presets.best_match_today || 'No matches'))
+            statCell('RESULT', result, isWin ? 'win' : 'loss'),
+            statCell('SCORE', `${score} ${map}`),
+            statCell('STATS', `${lastMatch.kills ?? 0}/${lastMatch.deaths ?? 0} ${lastMatch.kd_ratio ?? 0} KD`)
         ].join('');
     }
 
     if (type === 'maps') {
         return [
-            statCell('MAP PICK', mapPick ? `PICK: ${mapPick.name} (${mapPick.winrate} WR)` : shortText(presets.map_pick, 'No map data'), 'accent'),
-            statCell('BEST', maps.best ? `${maps.best.name}: ${maps.best.winrate}, ${maps.best.kd} KD` : shortText(presets.best_map, 'N/A'), 'win'),
-            statCell('AVOID', maps.worst ? `${maps.worst.name}: ${maps.worst.winrate}, ${maps.worst.kd} KD` : shortText(presets.worst_map, 'N/A'), 'loss')
+            statCell('PICK', mapPick ? `${mapPick.name} ${mapPick.winrate}` : 'No map data', 'accent'),
+            statCell('BEST', maps.best ? `${maps.best.name}: ${maps.best.winrate}, ${maps.best.kd} KD` : 'N/A', 'win'),
+            statCell('AVOID', maps.worst ? `${maps.worst.name}: ${maps.worst.winrate}, ${maps.worst.kd} KD` : 'N/A', 'loss')
         ].join('');
     }
 
     if (type === 'form') {
+        const tilt = api.tilt_meter || {};
         return [
             statCell('FORM', shortText(form.last5 || api.trend), 'accent'),
             statCell('STREAK', shortText(form.current_streak, 'N/A')),
-            statCell('10 MATCH WR', shortText(form.last10_winrate, '0%')),
-            statCell('TILT', shortText(presets.tilt, 'N/A'))
+            statCell('10 WR', shortText(form.last10_winrate, '0%')),
+            statCell('TILT', `${String(tilt.status || 'N/A').toUpperCase()} ${tilt.score ?? 0}/100`)
         ].join('');
     }
 
@@ -131,8 +151,8 @@ const getRows = (type, api) => {
 
         return [
             statCell('NEXT', target, 'accent'),
-            statCell('PROGRESS', shortText(presets.rank_progress, shortText(presets.next_level))),
-            statCell('PEAK', stripWidgetPrefixes(presets.peak_today || 'N/A'))
+            statCell('TARGET', nextLevel.target_nickname || nextLevel.next_level || 'N/A'),
+            statCell('PEAK', `${api.peak_today?.peak_elo ?? api.elo ?? 0} ELO`)
         ].join('');
     }
 
@@ -142,10 +162,10 @@ const getRows = (type, api) => {
         const solo = premades.solo;
 
         return [
-            statCell('BEST MODE', best ? best.label : 'No premades data', 'accent'),
-            statCellRaw('MODE WR', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)} WR` : 'N/A'),
-            statCell('MODE AVG', best ? `${best.avg_kills} AVG / ${best.avg_kd} KD` : 'N/A'),
-            statCell('SOLO', solo ? `${solo.winrate} WR, ${solo.avg_kd} KD` : 'No solo games')
+            statCell('BEST', best ? `${best.label} ${best.matches}M` : 'No data', 'accent'),
+            statCellRaw('BEST WR', best ? `${wlValue(best.wins, best.losses)} ${escapeHtml(best.winrate)}` : 'N/A'),
+            statCell('BEST AVG', best ? `${best.avg_kills} AVG / ${best.avg_kd} KD` : 'N/A'),
+            statCell('SOLO', solo ? `${solo.matches}M ${solo.winrate} / ${solo.avg_kd} KD` : '0M')
         ].join('');
     }
 
@@ -157,7 +177,7 @@ const getRows = (type, api) => {
     ].join('');
 };
 
-const renderWidget = ({ data, type, theme, refresh }) => {
+const renderWidget = ({ data, type, types, theme, refresh, rotate }) => {
     const api = data.api || {};
     const info = data.player_info || {};
     const stats = data.faceit_stats || {};
@@ -166,8 +186,25 @@ const renderWidget = ({ data, type, theme, refresh }) => {
     const level = api.lvl || stats.skill_level || 0;
     const elo = api.elo || stats.faceit_elo || 0;
     const top = api.top || stats.region_ranking;
-    const next = api.presets?.next_level || '';
-    const rows = getRows(type, api);
+    const next = getHeaderNext(api);
+    const activeTypes = types.length ? types : [type];
+    const rows = activeTypes.map((rowType, index) => `
+        <section class="grid widget-panel type-${escapeAttr(rowType)} ${index === 0 ? 'active' : ''}" data-panel="${index}">
+            ${getRows(rowType, api, data)}
+        </section>
+    `).join('');
+    const carouselScript = activeTypes.length > 1 ? `
+<script>
+(() => {
+    const panels = [...document.querySelectorAll('.widget-panel')];
+    let index = 0;
+    setInterval(() => {
+        panels[index].classList.remove('active');
+        index = (index + 1) % panels.length;
+        panels[index].classList.add('active');
+    }, ${JSON.stringify(rotate * 1000)});
+})();
+</script>` : '';
 
     return `<!doctype html>
 <html lang="en">
@@ -285,14 +322,15 @@ const renderWidget = ({ data, type, theme, refresh }) => {
     .elo strong { display: block; font-size: 32px; line-height: 1; font-weight: 950; }
     .elo span { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
     .grid {
-        display: grid;
+        display: none;
         grid-template-columns: repeat(4, minmax(0, 1fr));
         border-top: 1px solid var(--line);
         background: var(--panel);
     }
-    .type-last .grid,
-    .type-maps .grid,
-    .type-rank .grid {
+    .grid.active { display: grid; }
+    .grid.type-last,
+    .grid.type-maps,
+    .grid.type-rank {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .cell {
@@ -339,7 +377,7 @@ const renderWidget = ({ data, type, theme, refresh }) => {
 </style>
 </head>
 <body class="${escapeAttr(theme)}">
-<main class="widget type-${escapeAttr(type)}">
+<main class="widget type-${escapeAttr(activeTypes[0])}">
     <section class="head">
         <img class="avatar" src="${escapeAttr(avatar)}" alt="">
         ${getLevelBadge(level, top)}
@@ -352,8 +390,9 @@ const renderWidget = ({ data, type, theme, refresh }) => {
             <span>${top ? `#${escapeHtml(top)} EU` : 'EU rank N/A'}</span>
         </div>
     </section>
-    <section class="grid">${rows}</section>
+    ${rows}
 </main>
+${carouselScript}
 </body>
 </html>`;
 };
@@ -367,8 +406,17 @@ export default async function handler(request, response) {
     const { nick, theme = 'dark' } = request.query;
     const type = String(request.query.type || request.query.widget || 'summary').toLowerCase();
     const refresh = Math.max(30, Math.min(600, asNumber(request.query.refresh, DEFAULT_REFRESH_SECONDS)));
-    const allowedTypes = new Set(['summary', 'last', 'maps', 'form', 'rank', 'premades']);
+    const rotate = Math.max(3, Math.min(60, asNumber(request.query.rotate || request.query.interval, 8)));
+    const allowedTypes = new Set(ALLOWED_TYPES);
     const normalizedType = allowedTypes.has(type) ? type : 'summary';
+    const requestedTypes = String(request.query.types || '')
+        .split(',')
+        .map(item => item.trim().toLowerCase())
+        .filter(item => allowedTypes.has(item));
+    const carouselEnabled = 'carousel' in request.query || requestedTypes.length > 0;
+    const carouselTypes = carouselEnabled
+        ? (requestedTypes.length ? requestedTypes : ALLOWED_TYPES)
+        : [];
     const normalizedTheme = theme === 'light' ? 'light' : 'dark';
 
     if (!nick) {
@@ -380,7 +428,8 @@ export default async function handler(request, response) {
         const protocol = request.headers['x-forwarded-proto'] || 'https';
         const host = request.headers.host;
         const baseUrl = `${protocol}://${host}`;
-        const premadesParams = normalizedType === 'premades'
+        const needsPremades = normalizedType === 'premades' || carouselTypes.includes('premades');
+        const premadesParams = needsPremades
             ? `&premades=true${request.query.premades_min ? `&premades_min=${encodeURIComponent(request.query.premades_min)}` : ''}`
             : '';
         const apiUrl = `${baseUrl}/api/faceit?nick=${encodeURIComponent(nick)}&full&compact${premadesParams}`;
@@ -397,8 +446,10 @@ export default async function handler(request, response) {
         response.status(200).send(renderWidget({
             data,
             type: normalizedType,
+            types: carouselTypes,
             theme: normalizedTheme,
-            refresh
+            refresh,
+            rotate
         }));
     } catch (error) {
         console.error('[widget:error]', error);
