@@ -554,6 +554,7 @@ export default async function handler(request, response) {
             .filter(match => match.match_id)
             .slice(0, 50);
         const minimumSharedMatches = Math.max(2, parseInt(options.minSharedMatches || 3) || 3);
+        const minimumComboMatches = Math.max(1, parseInt(options.minComboMatches || 2) || 2);
         const eloChangesByMatchId = options.eloChangesByMatchId || new Map();
         const eloChangesBySignature = options.eloChangesBySignature || new Map();
 
@@ -692,13 +693,16 @@ export default async function handler(request, response) {
             const avgKills = entry.matches ? entry.kills / entry.matches : 0;
             const avgKd = entry.matches ? entry.kd / entry.matches : 0;
             const avgAdr = entry.matches ? entry.adr / entry.matches : 0;
-            const score = winrate * 0.9 +
-                entry.matches * 3 +
-                entry.wins * 1.5 -
-                entry.losses +
-                avgKills * 0.8 +
-                avgKd * 12 +
-                avgAdr * 0.12 +
+            const eloPerMatch = entry.elo_matches ? entry.elo_change / entry.elo_matches : 0;
+            const score = entry.elo_change * 4 +
+                eloPerMatch * 20 +
+                winrate * 0.5 +
+                entry.matches * 1.2 +
+                entry.wins -
+                entry.losses * 0.8 +
+                avgKills * 0.25 +
+                avgKd * 4 +
+                avgAdr * 0.03 +
                 entry.size;
 
             return {
@@ -714,13 +718,14 @@ export default async function handler(request, response) {
                 avg_adr: avgAdr.toFixed(2),
                 elo_change: entry.elo_change,
                 elo_matches: entry.elo_matches,
+                elo_per_match: Number(eloPerMatch.toFixed(2)),
                 elo_text: entry.elo_change > 0 ? `+${entry.elo_change}` : entry.elo_change.toString(),
                 score: Number(score.toFixed(2))
             };
         };
 
         const groups = [...premadeMap.values()]
-            .filter(entry => entry.matches > 0)
+            .filter(entry => entry.matches >= minimumComboMatches)
             .map(finalize)
             .sort((a, b) => b.score - a.score || b.matches - a.matches || parseFloat(b.avg_kd) - parseFloat(a.avg_kd));
         const soloFinal = solo.matches ? finalize(solo) : null;
@@ -738,10 +743,11 @@ export default async function handler(request, response) {
             mode: exactPartyMatches ? "exact_faceit_party" : "inferred_recurring_teammates",
             detail_sources: detailSources,
             minimum_shared_matches: minimumSharedMatches,
+            minimum_combo_matches: minimumComboMatches,
             recurring_teammates: [...recurringTeammates.values()]
                 .sort((a, b) => b.matches - a.matches)
                 .slice(0, 10),
-            formula: "WR*0.9 + MATCHES*3 + WINS*1.5 - LOSSES + AVG*0.8 + KD*12 + ADR*0.12 + STACK_SIZE",
+            formula: "ELO_CHANGE*4 + ELO_PER_MATCH*20 + WR*0.5 + MATCHES*1.2 + WINS - LOSSES*0.8 + AVG*0.25 + KD*4 + ADR*0.03 + STACK_SIZE",
             source: exactPartyMatches
                 ? "FACEIT match room/internal party data"
                 : "inferred from repeated teammates; one-off random teammates are ignored",
@@ -1431,6 +1437,7 @@ export default async function handler(request, response) {
         const premades = premadesMode
             ? await calculatePremades(premadeMatches.length ? premadeMatches : lastMatches, playerId, {
                 minSharedMatches: request.query.premades_min,
+                minComboMatches: request.query.premades_combo_min,
                 eloChangesByMatchId,
                 eloChangesBySignature
             })

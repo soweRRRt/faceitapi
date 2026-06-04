@@ -438,7 +438,7 @@ export default async function handler(request, response) {
         const baseUrl = `${protocol}://${host}`;
         const needsPremades = normalizedType === 'premades' || carouselTypes.includes('premades');
         const premadesParams = needsPremades
-            ? `&premades=true${request.query.premades_min ? `&premades_min=${encodeURIComponent(request.query.premades_min)}` : ''}`
+            ? `&premades=true${request.query.premades_min ? `&premades_min=${encodeURIComponent(request.query.premades_min)}` : ''}${request.query.premades_combo_min ? `&premades_combo_min=${encodeURIComponent(request.query.premades_combo_min)}` : ''}`
             : '';
         const apiUrl = `${baseUrl}/api/faceit?nick=${encodeURIComponent(nick)}&full&compact${premadesParams}`;
         const apiResponse = await fetch(apiUrl);
